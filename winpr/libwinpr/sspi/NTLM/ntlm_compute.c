@@ -329,7 +329,17 @@ int ntlm_compute_ntlm_v2_hash(NTLM_CONTEXT* context, BYTE* hash)
 	}
 	else if (context->UseSamFileDatabase)
 	{
-		ntlm_fetch_ntlm_v2_hash(context, hash);
+		fprintf(stderr,"No password given. Trying to fetch from SAM database ...\n");
+		if(ntlm_fetch_ntlm_v2_hash(context, hash)==-1){
+			if(!credentials->identity.Password){
+				credentials->identity.Password=malloc(1*sizeof(char));
+				*(credentials->identity.Password)='\0';
+			}
+
+			NTOWFv2W((LPWSTR) credentials->identity.Password, credentials->identity.PasswordLength * 2,
+				(LPWSTR) credentials->identity.User, credentials->identity.UserLength * 2,
+				(LPWSTR) credentials->identity.Domain, credentials->identity.DomainLength * 2, (BYTE*) hash);
+		}
 	}
 
 	return 1;
