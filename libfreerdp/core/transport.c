@@ -56,6 +56,9 @@
 #include "transport.h"
 #include "rdp.h"
 
+#ifdef WITH_GUI
+	#include <gui.c>
+#endif
 
 #define BUFFER_SIZE 16384
 
@@ -346,8 +349,16 @@ BOOL transport_connect_nla(rdpTransport* transport)
 			freerdp_set_last_error(instance->context, FREERDP_ERROR_AUTHENTICATION_FAILED);
 		}
 
+#ifdef WITH_GUI
+		if(logon_error()){
+			printf( "ERROR MESSAGE COULDN'T BE DISPLAYED\n"
+				"Authentication failure, check credentials.\n"
+				"If credentials are valid, the NTLMSSP implementation may be to blame.\n");
+		}
+#else
 		fprintf(stderr, "Authentication failure, check credentials.\n"
 			"If credentials are valid, the NTLMSSP implementation may be to blame.\n");
+#endif
 
 		transport_set_nla_mode(transport, FALSE);
 		credssp_free(credSsp);

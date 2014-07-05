@@ -192,6 +192,11 @@ if(WITH_XRENDER)
 	set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} ${XRENDER_LIBRARIES})
 endif()
 
+if(WITH_GUI)
+	add_definitions(-DWITH_GUI)
+	include_directories("../../freerdp_gui")
+endif()
+
 include_directories(${CMAKE_SOURCE_DIR}/resources)
 
 set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} freerdp-client)

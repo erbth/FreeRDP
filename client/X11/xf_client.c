@@ -99,6 +99,10 @@
 #include "xf_channels.h"
 #include "xfreerdp.h"
 
+#ifdef WITH_GUI
+	#include <gui.c>
+#endif
+
 static long xv_port = 0;
 static const size_t password_size = 512;
 
@@ -940,11 +944,62 @@ BOOL xf_post_connect(freerdp *instance)
  */
 BOOL xf_authenticate(freerdp *instance, char **username, char **password, char **domain)
 {
+#ifdef WITH_GUI
+	char ret;
+	char *tempcp1;
+	int temp1;
+	
+	*password = malloc(password_size * sizeof(char));
+	**password=0;
+
+	tempcp1=*username;
+	*username=malloc(2 * password_size * sizeof(char));
+	**username=0;
+	if(tempcp1){
+		strcpy(*username,tempcp1);
+		free(tempcp1);
+	}
+	
+	tempcp1=*domain;
+	*domain=malloc(2 * password_size * sizeof(char));
+	**domain=0;
+	if(tempcp1){
+		strcpy(*domain,tempcp1);
+		free(tempcp1);
+
+		strcat(*domain,"\\");
+		strcat(*domain,*username);
+		strcpy(*username,*domain);
+	}
+	
+	ret=logon_dialog(*username,*password);
+	if(ret){
+		return FALSE;
+	}
+
+
+	if((tempcp1=strchr(*username,'\\'))!=NULL){
+		temp1=tempcp1-*username;
+
+		strcpy(*domain,*username);
+		strcpy(*username,(*domain+temp1+1));
+		*((*domain)+temp1)=0;
+	}else{
+		if((tempcp1=strchr(*username,'@'))!=NULL){
+			strcpy(*domain,tempcp1+1);
+			*tempcp1=0;
+		}else{
+			**domain=0;
+		}
+	}
+#else	
 	// FIXME: seems this callback may be called when 'username' is not known.
 	// But it doesn't do anything to fix it...
 	*password = malloc(password_size * sizeof(char));
-	if(freerdp_passphrase_read("Password: ", *password, password_size, instance->settings->CredentialsFromStdin) == NULL)
+
+	if (freerdp_passphrase_read("Password: ", *password, password_size, instance->settings->CredentialsFromStdin) == NULL)
 		return FALSE;
+#endif
 	return TRUE;
 }
 
@@ -960,6 +1015,25 @@ BOOL xf_authenticate(freerdp *instance, char **username, char **password, char *
  */
 BOOL xf_verify_certificate(freerdp *instance, char *subject, char *issuer, char *fingerprint)
 {
+#ifdef WITH_GUI
+	char *ctext;
+	
+	ctext=malloc(sizeof(char)*512);
+	*ctext=0;
+	
+	strcat(ctext,"Certificate details:\n"
+	"   Subject: "); strcat(ctext,subject);
+	strcat(ctext,"\n   Issuer: "); strcat(ctext,issuer);
+	strcat(ctext,"\n   Thumbprint: "); strcat(ctext,fingerprint);
+	strcat(ctext,"\n\nThe above X.509 certificate could not be verified, possibly because you do not have "
+		"the CA certificate in your certificate store, or the certificate has expired. "
+		"Please look at the documentation on how to create local certificate store for a private CA.\n"
+		"\nDo you trust the above certificate?");
+	
+	if(cert_error(ctext,1)==0){
+		return TRUE;
+	}
+#else	
 	char answer;
 	printf("Certificate details:\n");
 	printf("\tSubject: %s\n", subject);
@@ -991,6 +1065,7 @@ BOOL xf_verify_certificate(freerdp *instance, char *subject, char *issuer, char 
 			}
 		printf("\n");
 	}
+#endif
 	return FALSE;
 }
 

@@ -33,6 +33,10 @@
 #include <freerdp/crypto/tls.h>
 #include "../core/tcp.h"
 
+#ifdef WITH_GUI
+	#include <gui.c>
+#endif
+
 struct _BIO_RDP_TLS
 {
 	SSL* ssl;
@@ -1208,44 +1212,80 @@ int tls_verify_certificate(rdpTls* tls, CryptoCert cert, char* hostname, int por
 
 void tls_print_certificate_error(char* hostname, char* fingerprint, char *hosts_file)
 {
-	fprintf(stderr, "The host key for %s has changed\n", hostname);
-	fprintf(stderr, "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
-	fprintf(stderr, "@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\n");
-	fprintf(stderr, "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
-	fprintf(stderr, "IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!\n");
-	fprintf(stderr, "Someone could be eavesdropping on you right now (man-in-the-middle attack)!\n");
-	fprintf(stderr, "It is also possible that a host key has just been changed.\n");
-	fprintf(stderr, "The fingerprint for the host key sent by the remote host is\n%s\n", fingerprint);
-	fprintf(stderr, "Please contact your system administrator.\n");
-	fprintf(stderr, "Add correct host key in %s to get rid of this message.\n", hosts_file);
-	fprintf(stderr, "Host key for %s has changed and you have requested strict checking.\n", hostname);
-	fprintf(stderr, "Host key verification failed.\n");
+	char *text,*tempp;
+
+	tempp=text=malloc(sizeof(char)*1500);
+	if(!text)
+		return;
+	*text=0;
+
+	tempp+=sprintf(tempp, "The host key for %s has changed\n", hostname);
+#ifdef WITH_GUI
+	tempp+=sprintf(tempp, "\n     WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!      \n\n");
+#else
+	tempp+=sprintf(tempp, "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
+	tempp+=sprintf(tempp, "@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\n");
+	tempp+=sprintf(tempp, "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
+#endif
+	tempp+=sprintf(tempp, "IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!\n");
+	tempp+=sprintf(tempp, "Someone could be eavesdropping on you right now (man-in-the-middle attack)!\n");
+	tempp+=sprintf(tempp, "It is also possible that a host key has just been changed.\n");
+	tempp+=sprintf(tempp, "The fingerprint for the host key sent by the remote host is\n%s\n", fingerprint);
+	tempp+=sprintf(tempp, "Please contact your system administrator.\n");
+	tempp+=sprintf(tempp, "Add correct host key in %s to get rid of this message.\n", hosts_file);
+	tempp+=sprintf(tempp, "Host key for %s has changed and you have requested strict checking.\n", hostname);
+	tempp+=sprintf(tempp, "Host key verification failed.\n");
+
+#ifdef WITH_GUI
+	if(cert_error(text,0))
+		fprintf(stderr,"Error message couldn't be displayed!\n\n%s",text);
+#else
+	fprintf(stderr,text);
+#endif
+	free(text);
 }
 
 void tls_print_certificate_name_mismatch_error(char* hostname, char* common_name, char** alt_names, int alt_names_count)
 {
 	int index;
+	char *text,*tempp;
+
+	tempp=text=malloc(sizeof(char)*1500);
+	if(!text)
+		return;
+	*text=0;
 
 	assert(NULL != hostname);
 
-	fprintf(stderr, "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
-	fprintf(stderr, "@           WARNING: CERTIFICATE NAME MISMATCH!           @\n");
-	fprintf(stderr, "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
-	fprintf(stderr, "The hostname used for this connection (%s) \n", hostname);
-	fprintf(stderr, "does not match %s given in the certificate:\n", alt_names_count < 1 ? "the name" : "any of the names");
-	fprintf(stderr, "Common Name (CN):\n");
-	fprintf(stderr, "\t%s\n", common_name ? common_name : "no CN found in certificate");
+#ifdef WITH_GUI
+	tempp+=sprintf(tempp, "\n            WARNING: CERTIFICATE NAME MISMATCH!            \n\n");
+#else
+	tempp+=sprintf(tempp, "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
+	tempp+=sprintf(tempp, "@           WARNING: CERTIFICATE NAME MISMATCH!           @\n");
+	tempp+=sprintf(tempp, "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
+#endif
+	tempp+=sprintf(tempp, "The hostname used for this connection (%s) \n", hostname);
+	tempp+=sprintf(tempp, "does not match %s given in the certificate:\n", alt_names_count < 1 ? "the name" : "any of the names");
+	tempp+=sprintf(tempp, "Common Name (CN):\n");
+	tempp+=sprintf(tempp, "        %s\n", common_name ? common_name : "no CN found in certificate");
 	if (alt_names_count > 0)
 	{
 		assert(NULL != alt_names);
-		fprintf(stderr, "Alternative names:\n");
+		tempp+=sprintf(tempp, "Alternative names:\n");
 		for (index = 0; index < alt_names_count; index++)
 		{
 			assert(alt_names[index]);
-			fprintf(stderr, "\t %s\n", alt_names[index]);
+			tempp+=sprintf(tempp, "        %s\n", alt_names[index]);
 		}
 	}
-	fprintf(stderr, "A valid certificate for the wrong name should NOT be trusted!\n");
+	tempp+=sprintf(tempp, "A valid certificate for the wrong name should NOT be trusted!\n");
+#ifdef WITH_GUI
+	if(cert_error(text,0))
+		fprintf(stderr,"Error message couldn't be displayed!\n\n%s",text);
+#else
+	fprintf(stderr,text);
+#endif
+	free(text);
 }
 
 rdpTls* tls_new(rdpSettings* settings)
