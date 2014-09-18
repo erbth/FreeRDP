@@ -35,6 +35,7 @@ typedef struct xf_context xfContext;
 #include <freerdp/codec/color.h>
 #include <freerdp/codec/bitmap.h>
 #include <freerdp/codec/h264.h>
+#include <freerdp/codec/progressive.h>
 #include <freerdp/codec/region.h>
 
 struct xf_WorkArea
@@ -74,6 +75,7 @@ struct xf_context
 
 	freerdp* instance;
 	rdpSettings* settings;
+	rdpCodecs* codecs;
 
 	GC gc;
 	int bpp;
@@ -83,6 +85,8 @@ struct xf_context
 	int height;
 	int srcBpp;
 	GC gc_mono;
+	BOOL invert;
+	UINT32 format;
 	Screen* screen;
 	XImage* image;
 	Pixmap primary;
@@ -109,8 +113,11 @@ struct xf_context
 	HANDLE mutex;
 	BOOL UseXThreads;
 	BOOL cursorHidden;
+	BYTE palette[256 * 4];
 
 	HGDI_DC hdc;
+	UINT32 bitmap_size;
+	BYTE* bitmap_buffer;
 	BYTE* primary_buffer;
 	REGION16 invalidRegion;
 	BOOL inGfxFrame;
@@ -149,12 +156,6 @@ struct xf_context
 	XSetWindowAttributes attribs;
 	BOOL complex_regions;
 	VIRTUAL_SCREEN vscreen;
-	BYTE* bmp_codec_none;
-	BYTE* bmp_codec_nsc;
-	RFX_CONTEXT* rfx;
-	NSC_CONTEXT* nsc;
-	CLEAR_CONTEXT* clear;
-	H264_CONTEXT* h264;
 	void* xv_context;
 	void* clipboard_context;
 
@@ -242,6 +243,8 @@ void xf_unlock_x11(xfContext* xfc, BOOL display);
 
 void xf_draw_screen_scaled(xfContext* xfc, int x, int y, int w, int h, BOOL scale);
 void xf_transform_window(xfContext* xfc);
+
+unsigned long xf_gdi_get_color(xfContext* xfc, GDI_COLOR color);
 
 FREERDP_API DWORD xf_exit_code_from_disconnect_reason(DWORD reason);
 

@@ -233,9 +233,23 @@ endif()
 
 if(WIN32)
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DUNICODE -D_UNICODE")
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_WIN32_WINNT=0x0501")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_CRT_SECURE_NO_WARNINGS")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DWIN32_LEAN_AND_MEAN")
+
+	if(NOT DEFINED CMAKE_WINDOWS_VERSION)
+		set(CMAKE_WINDOWS_VERSION "WINXP")
+	endif()
+
+	if(CMAKE_WINDOWS_VERSION STREQUAL "WINXP")
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DWINVER=0x0501 -DWIN32_WINNT=0x0501")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DWINVER=0x0501 -DWIN32_WINNT=0x0501")
+	elseif(CMAKE_WINDOWS_VERSION STREQUAL "WIN7")
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DWINVER=0x0601 -DWIN32_WINNT=0x0601")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DWINVER=0x0601 -DWIN32_WINNT=0x0601")
+	elseif(CMAKE_WINDOWS_VERSION STREQUAL "WIN8")
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DWINVER=0x0602 -DWIN32_WINNT=0x0602")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DWINVER=0x0602 -DWIN32_WINNT=0x0602")
+	endif()
 endif()
 
 if(IOS)
@@ -249,6 +263,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DWINPR_EXPORTS -DFREERDP_EXPORTS")
 if(NOT IOS)
 	check_include_files(fcntl.h HAVE_FCNTL_H)
 	check_include_files(unistd.h HAVE_UNISTD_H)
+	check_include_files(execinfo.h HAVE_EXECINFO_H)
 	check_include_files(stdint.h HAVE_STDINT_H)
 	check_include_files(inttypes.h HAVE_INTTYPES_H)
 	check_include_files(sys/modem.h HAVE_SYS_MODEM_H)
@@ -634,7 +649,9 @@ if(${CMAKE_VERSION} VERSION_GREATER "2.8.10")
 	set(FREERDP_CMAKE_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/FreeRDP")
 
 	set(FREERDP_INCLUDE_DIR "include")
-	set(FREERDP_MONOLITHIC_BUILD ${MONOLITHIC_BUILD})
+
+	# keep for legacy builds
+	set(FREERDP_MONOLITHIC_BUILD OFF)
 
 	configure_package_config_file(FreeRDPConfig.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/FreeRDPConfig.cmake
 		INSTALL_DESTINATION ${FREERDP_CMAKE_INSTALL_DIR}
@@ -666,28 +683,11 @@ endif()
 
 include(${CMAKE_CPACK_INCLUDE_FILE})
 
-if(MONOLITHIC_BUILD)
-	set(FREERDP_PC_LIBS "-lfreerdp -lfreerdp-client")
-	set(WINPR_PC_LIBS "-lwinpr")
-	if (WITH_SERVER)
-		set(FREERDP_PC_LIBS "${FREERDP_PC_LIBS} -lfreerdp-server")
-	endif()
-else(MONOLITHIC_BUILD)
-	# freerdp exports
-	get_property(MEXPORTS GLOBAL PROPERTY "freerdp_EXPORTS")
-	foreach(EXPORT_MODULE ${MEXPORTS})
-			list(APPEND FREERDP_PC_LIBS "-lfreerdp-${EXPORT_MODULE}")
-	endforeach()
-	string(REPLACE ";" " " FREERDP_PC_LIBS "${FREERDP_PC_LIBS}")
-
-	# winpr exports
-	get_property(MEXPORTS GLOBAL PROPERTY "winpr_EXPORTS")
-	foreach(EXPORT_MODULE ${MEXPORTS})
-			list(APPEND WINPR_PC_LIBS "-lwinpr-${EXPORT_MODULE}")
-	endforeach()
-	list(APPEND WINPR_PC_LIBS "-lwinpr")
-	string(REPLACE ";" " " WINPR_PC_LIBS "${WINPR_PC_LIBS}")
-endif(MONOLITHIC_BUILD)
+set(FREERDP_PC_LIBS "-lfreerdp -lfreerdp-client")
+set(WINPR_PC_LIBS "-lwinpr")
+if (WITH_SERVER)
+	set(FREERDP_PC_LIBS "${FREERDP_PC_LIBS} -lfreerdp-server")
+endif()
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/freerdp.pc.in ${CMAKE_CURRENT_BINARY_DIR}/freerdp.pc @ONLY)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/winpr.pc.in ${CMAKE_CURRENT_BINARY_DIR}/winpr.pc @ONLY)

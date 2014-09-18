@@ -25,12 +25,17 @@
 #include <winpr/thread.h>
 
 #include <freerdp/server/remdesk.h>
+#include <freerdp/channels/log.h>
+
+#define TAG CHANNELS_TAG("remdesk.server")
 
 struct _remdesk_server_private
 {
 	HANDLE Thread;
 	HANDLE StopEvent;
 	void* ChannelHandle;
+
+	UINT32 Version;
 };
 
 #endif /* FREERDP_CHANNEL_SERVER_REMDESK_MAIN_H */

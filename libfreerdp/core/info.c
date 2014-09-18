@@ -23,11 +23,14 @@
 
 #include <winpr/crt.h>
 #include <freerdp/crypto/crypto.h>
+#include <freerdp/log.h>
 #include <stdio.h>
 
 #include "timezone.h"
 
 #include "info.h"
+
+#define TAG FREERDP_TAG("core")
 
 #define INFO_TYPE_LOGON			0x00000000
 #define INFO_TYPE_LOGON_LONG		0x00000001
@@ -67,7 +70,7 @@ BOOL rdp_read_server_auto_reconnect_cookie(wStream* s, rdpSettings* settings)
 		char *base64;
 		base64 = crypto_base64_encode((BYTE *) autoReconnectCookie,
 			sizeof(ARC_SC_PRIVATE_PACKET));
-		fprintf(stderr, "Reconnect-cookie: %s\n", base64);
+		WLog_INFO(TAG,  "Reconnect-cookie: %s", base64);
 		free(base64);
 	}
 	return TRUE;
@@ -105,13 +108,31 @@ BOOL rdp_read_client_auto_reconnect_cookie(wStream* s, rdpSettings* settings)
 
 void rdp_write_client_auto_reconnect_cookie(wStream* s, rdpSettings* settings)
 {
+	CryptoHmac hmac;
+	BYTE nullRandom[32];
+	BYTE cryptSecurityVerifier[16];
 	ARC_CS_PRIVATE_PACKET* autoReconnectCookie;
 	autoReconnectCookie = settings->ClientAutoReconnectCookie;
+
+	/* SecurityVerifier = HMAC(AutoReconnectRandom, ClientRandom) */
+
+	hmac = crypto_hmac_new();
+	ZeroMemory(nullRandom, sizeof(nullRandom));
+
+	crypto_hmac_md5_init(hmac, autoReconnectCookie->securityVerifier, 16);
+
+	if (settings->ClientRandomLength > 0)
+		crypto_hmac_update(hmac, settings->ClientRandom, settings->ClientRandomLength);
+	else
+		crypto_hmac_update(hmac, nullRandom, sizeof(nullRandom));
+
+	crypto_hmac_final(hmac, cryptSecurityVerifier, 16);
+	crypto_hmac_free(hmac);
 
 	Stream_Write_UINT32(s, autoReconnectCookie->cbLen); /* cbLen (4 bytes) */
 	Stream_Write_UINT32(s, autoReconnectCookie->version); /* version (4 bytes) */
 	Stream_Write_UINT32(s, autoReconnectCookie->logonId); /* LogonId (4 bytes) */
-	Stream_Write(s, autoReconnectCookie->securityVerifier, 16); /* SecurityVerifier */
+	Stream_Write(s, cryptSecurityVerifier, 16); /* SecurityVerifier */
 }
 
 /**
@@ -238,8 +259,7 @@ void rdp_write_extended_info_packet(wStream* s, rdpSettings* settings)
 		CryptoHmac hmac;
 		ARC_SC_PRIVATE_PACKET* serverCookie;
 		ARC_CS_PRIVATE_PACKET* clientCookie;
-
-		printf("Sending auto reconnect\n");
+		WLog_DBG(TAG, "Sending auto reconnect");
 		serverCookie = settings->ServerAutoReconnectCookie;
 		clientCookie = settings->ClientAutoReconnectCookie;
 
@@ -250,7 +270,7 @@ void rdp_write_extended_info_packet(wStream* s, rdpSettings* settings)
 		hmac = crypto_hmac_new();
 		if (!hmac)
 		{
-			fprintf(stderr, "%s: unable to allocate hmac\n", __FUNCTION__);
+			WLog_ERR(TAG,  "unable to allocate hmac");
 			goto out_free;
 		}
 
@@ -431,6 +451,9 @@ void rdp_write_info_packet(wStream* s, rdpSettings* settings)
 	if (settings->RemoteConsoleAudio)
 		flags |= INFO_REMOTECONSOLEAUDIO;
 
+	if (settings->HiDefRemoteApp)
+		flags |= INFO_HIDEF_RAIL_SUPPORTED;
+
 	if (settings->CompressionEnabled)
 	{
 		flags |= INFO_COMPRESSION;
@@ -482,8 +505,16 @@ void rdp_write_info_packet(wStream* s, rdpSettings* settings)
 	}
 	else
 	{
-		/* This field MUST be filled with "*" */
-		cbAlternateShell = ConvertToUnicode(CP_UTF8, 0, "*", -1, &alternateShellW, 0) * 2;
+		if (settings->RemoteAssistancePassStub)
+		{
+			/* This field MUST be filled with "*" */
+			cbAlternateShell = ConvertToUnicode(CP_UTF8, 0, "*", -1, &alternateShellW, 0) * 2;
+		}
+		else
+		{
+			/* This field must contain the remote assistance password */
+			cbAlternateShell = ConvertToUnicode(CP_UTF8, 0, settings->RemoteAssistancePassword, -1, &alternateShellW, 0) * 2;
+		}
 	}
 
 	if (!settings->RemoteAssistanceMode)
@@ -563,7 +594,7 @@ BOOL rdp_recv_client_info(rdpRdp* rdp, wStream* s)
 	{
 		if (securityFlags & SEC_REDIRECTION_PKT)
 		{
-			fprintf(stderr, "Error: SEC_REDIRECTION_PKT unsupported\n");
+			WLog_ERR(TAG,  "Error: SEC_REDIRECTION_PKT unsupported");
 			return FALSE;
 		}
 
@@ -571,7 +602,7 @@ BOOL rdp_recv_client_info(rdpRdp* rdp, wStream* s)
 		{
 			if (!rdp_decrypt(rdp, s, length - 4, securityFlags))
 			{
-				fprintf(stderr, "rdp_decrypt failed\n");
+				WLog_ERR(TAG,  "rdp_decrypt failed");
 				return FALSE;
 			}
 		}
@@ -724,7 +755,7 @@ BOOL rdp_recv_save_session_info(rdpRdp* rdp, wStream* s)
 		return FALSE;
 	Stream_Read_UINT32(s, infoType); /* infoType (4 bytes) */
 
-	//fprintf(stderr, "%s\n", INFO_TYPE_LOGON_STRINGS[infoType]);
+	//WLog_ERR(TAG,  "%s\n", INFO_TYPE_LOGON_STRINGS[infoType]);
 
 	switch (infoType)
 	{

@@ -27,12 +27,14 @@
 #include "message.h"
 #include "transport.h"
 
+#include <freerdp/log.h>
 #include <freerdp/freerdp.h>
 
 #include <winpr/crt.h>
 #include <winpr/stream.h>
 #include <winpr/collections.h>
 
+#define TAG FREERDP_TAG("core.message")
 #define WITH_STREAM_POOL	1
 
 /* Update */
@@ -762,7 +764,7 @@ static void update_message_WindowIcon(rdpContext* context, WINDOW_ORDER_INFO* or
 	lParam = (WINDOW_ICON_ORDER*) malloc(sizeof(WINDOW_ICON_ORDER));
 	CopyMemory(lParam, windowIcon, sizeof(WINDOW_ICON_ORDER));
 
-	fprintf(stderr, "update_message_WindowIcon\n");
+	WLog_VRB(TAG,  "update_message_WindowIcon");
 
 	if (windowIcon->iconInfo->cbBitsColor > 0)
 	{
@@ -1871,7 +1873,7 @@ static int update_message_free_class(wMessage*msg, int msgClass, int msgType)
 	}
 
 	if (status < 0)
-		fprintf(stderr, "Unknown message: class: %d type: %d\n", msgClass, msgType);
+		WLog_ERR(TAG,  "Unknown message: class: %d type: %d", msgClass, msgType);
 
 	return status;
 }
@@ -1912,7 +1914,7 @@ static int update_message_process_class(rdpUpdateProxy* proxy, wMessage* msg, in
 	}
 
 	if (status < 0)
-		fprintf(stderr, "Unknown message: class: %d type: %d\n", msgClass, msgType);
+		WLog_ERR(TAG,  "Unknown message: class: %d type: %d", msgClass, msgType);
 
 	return status;
 }
@@ -2159,11 +2161,37 @@ void update_message_register_interface(rdpUpdateProxy* message, rdpUpdate* updat
 	pointer->PointerCached = update_message_PointerCached;
 }
 
-rdpUpdateProxy* update_message_proxy_new(rdpUpdate* update)
+static void *update_message_proxy_thread(void *arg)
 {
-	rdpUpdateProxy* message;
+	rdpUpdate *update = (rdpUpdate *)arg;
+	wMessage message;
 
-	message = (rdpUpdateProxy*) malloc(sizeof(rdpUpdateProxy));
+	if (!update || !update->queue)
+	{
+		WLog_ERR(TAG, "update=%p, update->queue=%p", update, update ? update->queue : NULL);
+		ExitThread(-1);
+		return NULL;
+	}
+
+	while (MessageQueue_Wait(update->queue))
+	{
+		int status = 0;
+
+		if (MessageQueue_Peek(update->queue, &message, TRUE))
+			status = update_message_queue_process_message(update, &message);
+
+		if (!status)
+			break;
+	}
+
+	ExitThread(0);
+	return NULL;
+}
+
+rdpUpdateProxy *update_message_proxy_new(rdpUpdate *update)
+{
+	rdpUpdateProxy *message;
+	message = (rdpUpdateProxy *) malloc(sizeof(rdpUpdateProxy));
 
 	if (message)
 	{
@@ -2171,6 +2199,7 @@ rdpUpdateProxy* update_message_proxy_new(rdpUpdate* update)
 
 		message->update = update;
 		update_message_register_interface(message, update);
+		message->thread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE) update_message_proxy_thread, update, 0, NULL);
 	}
 
 	return message;
@@ -2180,6 +2209,9 @@ void update_message_proxy_free(rdpUpdateProxy* message)
 {
 	if (message)
 	{
+		MessageQueue_PostQuit(message->update->queue, 0);
+		WaitForSingleObject(message->thread, INFINITE);
+		CloseHandle(message->thread);
 		free(message);
 	}
 }
@@ -2318,7 +2350,7 @@ static int input_message_free_class(wMessage* msg, int msgClass, int msgType)
 	}
 
 	if (status < 0)
-		fprintf(stderr, "Unknown event: class: %d type: %d\n", msgClass, msgType);
+		WLog_ERR(TAG,  "Unknown event: class: %d type: %d", msgClass, msgType);
 
 	return status;
 }
@@ -2339,7 +2371,7 @@ static int input_message_process_class(rdpInputProxy* proxy, wMessage* msg, int 
 	}
 
 	if (status < 0)
-		fprintf(stderr, "Unknown event: class: %d type: %d\n", msgClass, msgType);
+		WLog_ERR(TAG,  "Unknown event: class: %d type: %d", msgClass, msgType);
 
 	return status;
 }

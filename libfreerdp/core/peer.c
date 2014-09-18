@@ -26,9 +26,12 @@
 #include "info.h"
 #include "certificate.h"
 
+#include <freerdp/log.h>
 #include <freerdp/utils/tcp.h>
 
 #include "peer.h"
+
+#define TAG FREERDP_TAG("core.peer")
 
 #ifdef WITH_DEBUG_RDP
 extern const char* DATA_PDU_TYPE_STRINGS[80];
@@ -36,27 +39,28 @@ extern const char* DATA_PDU_TYPE_STRINGS[80];
 
 static BOOL freerdp_peer_initialize(freerdp_peer* client)
 {
-	rdpRdp *rdp = client->context->rdp;
-	rdpSettings *settings = rdp->settings;
+	rdpRdp* rdp = client->context->rdp;
+	rdpSettings* settings = rdp->settings;
 
 	settings->ServerMode = TRUE;
 	settings->FrameAcknowledge = 0;
 	settings->LocalConnection = client->local;
 	rdp->state = CONNECTION_STATE_INITIAL;
 
-	if (settings->RdpKeyFile != NULL)
+	if (settings->RdpKeyFile)
 	{
 		settings->RdpServerRsaKey = key_new(settings->RdpKeyFile);
+
 		if (!settings->RdpServerRsaKey)
 		{
-			fprintf(stderr, "%s: inavlid RDP key file %s\n", __FUNCTION__, settings->RdpKeyFile);
+			WLog_ERR(TAG, "inavlid RDP key file %s", settings->RdpKeyFile);
 			return FALSE;
 		}
 
 		if (settings->RdpServerRsaKey->ModulusLength > 256)
 		{
-			fprintf(stderr, "%s: Key sizes > 2048 are currently not supported for RDP security.\n", __FUNCTION__);
-			fprintf(stderr, "%s: Set a different key file than %s\n", __FUNCTION__, settings->RdpKeyFile);
+			WLog_ERR(TAG, "Key sizes > 2048 are currently not supported for RDP security.");
+			WLog_ERR(TAG, "Set a different key file than %s", settings->RdpKeyFile);
 			exit(1);
 		}
 	}
@@ -76,7 +80,6 @@ static HANDLE freerdp_peer_get_event_handle(freerdp_peer* client)
 {
 	return client->context->rdp->transport->TcpIn->event;
 }
-
 
 static BOOL freerdp_peer_check_fds(freerdp_peer* peer)
 {
@@ -105,8 +108,8 @@ static BOOL peer_recv_data_pdu(freerdp_peer* client, wStream* s)
 		return FALSE;
 
 #ifdef WITH_DEBUG_RDP
-	printf("recv %s Data PDU (0x%02X), length: %d\n",
-		type < ARRAYSIZE(DATA_PDU_TYPE_STRINGS) ? DATA_PDU_TYPE_STRINGS[type] : "???", type, length);
+	WLog_DBG(TAG, "recv %s Data PDU (0x%02X), length: %d",
+			 type < ARRAYSIZE(DATA_PDU_TYPE_STRINGS) ? DATA_PDU_TYPE_STRINGS[type] : "???", type, length);
 #endif
 
 	switch (type)
@@ -159,7 +162,7 @@ static BOOL peer_recv_data_pdu(freerdp_peer* client, wStream* s)
 			break;
 
 		default:
-			fprintf(stderr, "Data PDU type %d\n", type);
+			WLog_ERR(TAG,  "Data PDU type %d", type);
 			break;
 	}
 
@@ -180,10 +183,13 @@ static int peer_recv_tpkt_pdu(freerdp_peer* client, wStream* s)
 
 	if (!rdp_read_header(rdp, s, &length, &channelId))
 	{
-		fprintf(stderr, "Incorrect RDP header.\n");
+		WLog_ERR(TAG,  "Incorrect RDP header.");
 		return -1;
 	}
 
+	if (rdp->disconnect)
+		return 0;
+ 
 	if (rdp->settings->DisableEncryption)
 	{
 		if (!rdp_read_security_header(s, &securityFlags))
@@ -193,7 +199,7 @@ static int peer_recv_tpkt_pdu(freerdp_peer* client, wStream* s)
 		{
 			if (!rdp_decrypt(rdp, s, length - 4, securityFlags))
 			{
-				fprintf(stderr, "rdp_decrypt failed\n");
+				WLog_ERR(TAG,  "rdp_decrypt failed");
 				return -1;
 			}
 		}
@@ -224,7 +230,7 @@ static int peer_recv_tpkt_pdu(freerdp_peer* client, wStream* s)
 				break;
 
 			default:
-				fprintf(stderr, "Client sent pduType %d\n", pduType);
+				WLog_ERR(TAG,  "Client sent pduType %d", pduType);
 				return -1;
 		}
 	}
@@ -245,7 +251,7 @@ static int peer_recv_fastpath_pdu(freerdp_peer* client, wStream* s)
 
 	if ((length == 0) || (length > Stream_GetRemainingLength(s)))
 	{
-		fprintf(stderr, "incorrect FastPath PDU header length %d\n", length);
+		WLog_ERR(TAG,  "incorrect FastPath PDU header length %d", length);
 		return -1;
 	}
 
@@ -384,7 +390,7 @@ static int peer_recv_callback(rdpTransport* transport, wStream* s, void* extra)
 			break;
 
 		default:
-			fprintf(stderr, "Invalid state %d\n", rdp->state);
+			WLog_ERR(TAG,  "Invalid state %d", rdp->state);
 			return -1;
 	}
 
@@ -431,7 +437,7 @@ void freerdp_peer_context_new(freerdp_peer* client)
 {
 	rdpRdp* rdp;
 
-	client->context = (rdpContext *)calloc(1, client->ContextSize);
+	client->context = (rdpContext*) calloc(1, client->ContextSize);
 
 	client->context->ServerMode = TRUE;
 

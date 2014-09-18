@@ -26,12 +26,17 @@
 
 #include <winpr/crt.h>
 
+#include <freerdp/log.h>
+
 #include "tpkt.h"
 
 #include "nego.h"
 
 #include "transport.h"
 
+#define TAG FREERDP_TAG("core.nego")
+
+#ifdef WITH_DEBUG_NEGO
 static const char* const NEGO_STATE_STRINGS[] =
 {
 	"NEGO_STATE_INITIAL",
@@ -55,6 +60,7 @@ static const char PROTOCOL_SECURITY_STRINGS[9][4] =
 	"UNK",
 	"EXT"
 };
+#endif /* WITH_DEBUG_NEGO */
 
 BOOL nego_security_connect(rdpNego* nego);
 
@@ -503,7 +509,7 @@ BOOL nego_recv_response(rdpNego* nego)
 	if (!s)
 		return FALSE;
 
-	status = transport_read(nego->transport, s);
+	status = transport_read_pdu(nego->transport, s);
 	if (status < 0)
 	{
 		Stream_Free(s, TRUE);
@@ -593,7 +599,7 @@ int nego_recv(rdpTransport* transport, wStream* s, void* extra)
 	}
 	else
 	{
-		fprintf(stderr, "invalid negotiation response\n");
+		WLog_ERR(TAG,  "invalid negotiation response");
 		nego->state = NEGO_STATE_FAIL;
 	}
 
@@ -619,7 +625,7 @@ BOOL nego_read_request(rdpNego* nego, wStream* s)
 
 	if (li != Stream_GetRemainingLength(s) + 6)
 	{
-		fprintf(stderr, "Incorrect TPDU length indicator.\n");
+		WLog_ERR(TAG,  "Incorrect TPDU length indicator.");
 		return FALSE;
 	}
 
@@ -651,7 +657,7 @@ BOOL nego_read_request(rdpNego* nego, wStream* s)
 
 		if (type != TYPE_RDP_NEG_REQ)
 		{
-			fprintf(stderr, "Incorrect negotiation request type %d\n", type);
+			WLog_ERR(TAG,  "Incorrect negotiation request type %d", type);
 			return FALSE;
 		}
 
@@ -890,35 +896,36 @@ BOOL nego_send_negotiation_response(rdpNego* nego)
 	bm = Stream_GetPosition(s);
 	Stream_Seek(s, length);
 
-	if (nego->selected_protocol > PROTOCOL_RDP)
-	{
-		flags = EXTENDED_CLIENT_DATA_SUPPORTED;
-
-		if (settings->SupportGraphicsPipeline)
-			flags |= DYNVC_GFX_PROTOCOL_SUPPORTED;
-
-		/* RDP_NEG_DATA must be present for TLS and NLA */
-		Stream_Write_UINT8(s, TYPE_RDP_NEG_RSP);
-		Stream_Write_UINT8(s, flags); /* flags */
-		Stream_Write_UINT16(s, 8); /* RDP_NEG_DATA length (8) */
-		Stream_Write_UINT32(s, nego->selected_protocol); /* selectedProtocol */
-		length += 8;
-	}
-	else if (!settings->RdpSecurity)
+	if ((nego->selected_protocol == PROTOCOL_RDP) && !settings->RdpSecurity)
 	{
 		flags = 0;
 
 		Stream_Write_UINT8(s, TYPE_RDP_NEG_FAILURE);
 		Stream_Write_UINT8(s, flags); /* flags */
 		Stream_Write_UINT16(s, 8); /* RDP_NEG_DATA length (8) */
+
 		/*
 		 * TODO: Check for other possibilities,
 		 *       like SSL_NOT_ALLOWED_BY_SERVER.
 		 */
-		fprintf(stderr, "%s: client supports only Standard RDP Security\n", __FUNCTION__);
+		WLog_ERR(TAG,  "client supports only Standard RDP Security");
 		Stream_Write_UINT32(s, SSL_REQUIRED_BY_SERVER);
 		length += 8;
 		status = FALSE;
+	}
+	else
+	{
+		flags = EXTENDED_CLIENT_DATA_SUPPORTED;
+
+		if (settings->SupportGraphicsPipeline)
+			flags |= DYNVC_GFX_PROTOCOL_SUPPORTED;
+
+		/* RDP_NEG_DATA must be present for TLS, NLA, and RDP */
+		Stream_Write_UINT8(s, TYPE_RDP_NEG_RSP);
+		Stream_Write_UINT8(s, flags); /* flags */
+		Stream_Write_UINT16(s, 8); /* RDP_NEG_DATA length (8) */
+		Stream_Write_UINT32(s, nego->selected_protocol); /* selectedProtocol */
+		length += 8;
 	}
 
 	em = Stream_GetPosition(s);
@@ -951,13 +958,22 @@ BOOL nego_send_negotiation_response(rdpNego* nego)
 
 			if (!settings->LocalConnection)
 			{
-				settings->DisableEncryption = TRUE;
+				settings->DisableEncryption = FALSE;
 				settings->EncryptionMethods = ENCRYPTION_METHOD_40BIT | ENCRYPTION_METHOD_56BIT | ENCRYPTION_METHOD_128BIT | ENCRYPTION_METHOD_FIPS;
 				settings->EncryptionLevel = ENCRYPTION_LEVEL_CLIENT_COMPATIBLE;
 			}
 
-			if (settings->DisableEncryption && !settings->RdpServerRsaKey && !settings->RdpKeyFile)
+			if (settings->DisableEncryption)
+			{
+				WLog_WARN(TAG, "Encryption is disabled.");
 				return FALSE;
+			}
+
+			if (!settings->RdpServerRsaKey && !settings->RdpKeyFile)
+			{
+				WLog_ERR(TAG, "Missing server certificate");
+				return FALSE;
+			}
 		}
 		else if (settings->SelectedProtocol == PROTOCOL_TLS)
 		{

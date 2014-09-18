@@ -34,7 +34,9 @@
 #include <freerdp/codec/audio.h>
 #include <freerdp/channels/wtsvc.h>
 #include <freerdp/server/audin.h>
+#include <freerdp/channels/log.h>
 
+#define TAG CHANNELS_TAG("audin.server")
 #define MSG_SNDIN_VERSION		0x01
 #define MSG_SNDIN_FORMATS		0x02
 #define MSG_SNDIN_OPEN			0x03
@@ -385,7 +387,7 @@ static void* audin_server_thread_func(void* arg)
 				break;
 
 			default:
-				fprintf(stderr, "audin_server_thread_func: unknown MessageId %d\n", MessageId);
+				WLog_ERR(TAG,  "audin_server_thread_func: unknown MessageId %d\n", MessageId);
 				break;
 		}
 	}
