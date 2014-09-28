@@ -1309,13 +1309,10 @@ void tls_print_certificate_error(char* hostname, char* fingerprint, char *hosts_
 	*text=0;
 
 	tempp+=sprintf(tempp, "The host key for %s has changed\n", hostname);
-#ifdef WITH_GUI
 	tempp+=sprintf(tempp, "\n     WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!      \n\n");
-#else
 	tempp+=sprintf(tempp, "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
 	tempp+=sprintf(tempp, "@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\n");
 	tempp+=sprintf(tempp, "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
-#endif
 	tempp+=sprintf(tempp, "IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!\n");
 	tempp+=sprintf(tempp, "Someone could be eavesdropping on you right now (man-in-the-middle attack)!\n");
 	tempp+=sprintf(tempp, "It is also possible that a host key has just been changed.\n");
@@ -1346,13 +1343,10 @@ void tls_print_certificate_name_mismatch_error(char* hostname, char* common_name
 
 	assert(NULL != hostname);
 
-#ifdef WITH_GUI
 	tempp+=sprintf(tempp, "\n            WARNING: CERTIFICATE NAME MISMATCH!            \n\n");
-#else
 	tempp+=sprintf(tempp, "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
 	tempp+=sprintf(tempp, "@           WARNING: CERTIFICATE NAME MISMATCH!           @\n");
 	tempp+=sprintf(tempp, "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
-#endif
 	tempp+=sprintf(tempp, "The hostname used for this connection (%s) \n", hostname);
 	tempp+=sprintf(tempp, "does not match %s given in the certificate:\n", alt_names_count < 1 ? "the name" : "any of the names");
 	tempp+=sprintf(tempp, "Common Name (CN):\n");

@@ -247,6 +247,12 @@ if(DEFINED OPTIMIZATION)
 endif()
 
 
+if(WITH_GUI)
+	add_definitions(-DWITH_GUI)
+	include_directories("../freerdp_gui")
+endif()
+
+
 # always compile with optimization
 if(CMAKE_COMPILER_IS_GNUCC)
 	set_source_files_properties(${PRIMITIVES_SRCS} PROPERTIES COMPILE_FLAGS "-O2")

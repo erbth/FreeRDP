@@ -56,7 +56,8 @@
 #include "rdp.h"
 
 #ifdef WITH_GUI
-	#include <gui.c>
+	//#include <gui.c> ok, I know, this is just dirty shit ...
+	#include <gui.h>
 #endif
 
 #define TAG FREERDP_TAG("core.transport")
