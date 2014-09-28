@@ -186,18 +186,18 @@ char xopen(void){
 	}
 	pixels[text_deselected]=mycolor.pixel;
 
-	font=XLoadFont(display,"*helvetica-medium-r-normal--11-*-iso8859-1");
+	font=XLoadFont(display,"*helvetica-medium-r-normal--11-*");
 	fontinfo=XQueryFont(display,font);
 
 
-	dialog_font=XLoadFont(display,"*helvetica-medium-r-normal--12-*-iso8859-1");
+	dialog_font=XLoadFont(display,"*helvetica-medium-r-normal--12-*");
 	dialog_fontinfo=XQueryFont(display,dialog_font);
 	
-	dialogdefault_font=XLoadFont(display,"*helvetica-medium-o-normal--12-*-iso8859-1");
+	dialogdefault_font=XLoadFont(display,"*helvetica-medium-o-normal--12-*");
 	dialogdefault_fontinfo=XQueryFont(display,dialog_font);
 
 	
-	text_font=XLoadFont(display,"*helvetica-medium-r-normal--12-*-iso8859-1");
+	text_font=XLoadFont(display,"*helvetica-medium-r-normal--12-*");
 	text_fontinfo=XQueryFont(display,dialog_font);
 
 
