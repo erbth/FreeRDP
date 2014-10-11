@@ -13,7 +13,8 @@ set(${MODULE_PREFIX}_TESTS
 	TestFreeRDPCodecPlanar.c
 	TestFreeRDPCodecClear.c
 	TestFreeRDPCodecProgressive.c
-	TestFreeRDPCodecRemoteFX.c)
+	TestFreeRDPCodecRemoteFX.c
+	TestFreeRDPCodecH264.c)
 
 create_test_sourcelist(${MODULE_PREFIX}_SRCS
 	${${MODULE_PREFIX}_DRIVER}
