@@ -1082,7 +1082,7 @@ BOOL xf_verify_certificate(freerdp *instance, char *subject, char *issuer, char 
 #ifdef WITH_GUI
 	char *ctext;
 	
-	ctext=malloc(sizeof(char)*512);
+	ctext=malloc(sizeof(char)*8192);
 	*ctext=0;
 	
 	strcat(ctext,"Certificate details:\n"

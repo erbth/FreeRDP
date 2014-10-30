@@ -1303,7 +1303,7 @@ void tls_print_certificate_error(char* hostname, char* fingerprint, char *hosts_
 {
 	char *text,*tempp;
 
-	tempp=text=malloc(sizeof(char)*1500);
+	tempp=text=malloc(sizeof(char)*8192);
 	if(!text)
 		return;
 	*text=0;
@@ -1336,7 +1336,7 @@ void tls_print_certificate_name_mismatch_error(char* hostname, char* common_name
 	int index;
 	char *text,*tempp;
 
-	tempp=text=malloc(sizeof(char)*1500);
+	tempp=text=malloc(sizeof(char)*8192);
 	if(!text)
 		return;
 	*text=0;
