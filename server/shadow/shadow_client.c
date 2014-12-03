@@ -40,6 +40,7 @@ void shadow_client_context_new(freerdp_peer* peer, rdpShadowClient* client)
 
 	server = (rdpShadowServer*) peer->ContextExtra;
 	client->server = server;
+	client->subsystem = server->subsystem;
 
 	settings = peer->settings;
 
@@ -49,6 +50,13 @@ void shadow_client_context_new(freerdp_peer* peer, rdpShadowClient* client)
 	settings->BitmapCacheV3Enabled = TRUE;
 	settings->FrameMarkerCommandEnabled = TRUE;
 	settings->SurfaceFrameMarkerEnabled = TRUE;
+	settings->SupportGraphicsPipeline = FALSE;
+
+	settings->DrawAllowSkipAlpha = TRUE;
+	settings->DrawAllowColorSubsampling = TRUE;
+	settings->DrawAllowDynamicColorFidelity = TRUE;
+
+	settings->CompressionLevel = PACKET_COMPR_TYPE_RDP6;
 
 	settings->RdpSecurity = TRUE;
 	settings->TlsSecurity = TRUE;
@@ -71,7 +79,7 @@ void shadow_client_context_new(freerdp_peer* peer, rdpShadowClient* client)
 
 	client->StopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 
-	client->encoder = shadow_encoder_new(server);
+	client->encoder = shadow_encoder_new(client);
 
 	ArrayList_Add(server->clients, (void*) client);
 }
@@ -103,6 +111,22 @@ void shadow_client_context_free(freerdp_peer* peer, rdpShadowClient* client)
 	}
 }
 
+void shadow_client_message_free(wMessage* message)
+{
+	if (message->id == SHADOW_MSG_IN_REFRESH_OUTPUT_ID)
+	{
+		SHADOW_MSG_IN_REFRESH_OUTPUT* wParam = (SHADOW_MSG_IN_REFRESH_OUTPUT*) message->wParam;
+
+		free(wParam->rects);
+		free(wParam);
+	}
+	else if (message->id == SHADOW_MSG_IN_SUPPRESS_OUTPUT_ID)
+	{
+		SHADOW_MSG_IN_SUPPRESS_OUTPUT* wParam = (SHADOW_MSG_IN_SUPPRESS_OUTPUT*) message->wParam;
+		free(wParam);
+	}
+}
+
 BOOL shadow_client_capabilities(freerdp_peer* peer)
 {
 	return TRUE;
@@ -110,16 +134,18 @@ BOOL shadow_client_capabilities(freerdp_peer* peer)
 
 BOOL shadow_client_post_connect(freerdp_peer* peer)
 {
+	int authStatus;
 	int width, height;
 	rdpSettings* settings;
 	rdpShadowClient* client;
-	rdpShadowSurface* lobby;
 	rdpShadowServer* server;
 	RECTANGLE_16 invalidRect;
+	rdpShadowSubsystem* subsystem;
 
 	client = (rdpShadowClient*) peer->context;
 	settings = peer->settings;
 	server = client->server;
+	subsystem = server->subsystem;
 
 	if (!server->shareSubRect)
 	{
@@ -138,6 +164,9 @@ BOOL shadow_client_post_connect(freerdp_peer* peer)
 	if (settings->ColorDepth == 24)
 		settings->ColorDepth = 16; /* disable 24bpp */
 
+	if (settings->MultifragMaxRequestSize < 0x3F0000)
+		settings->NSCodec = FALSE; /* NSCodec compressor does not support fragmentation yet */
+
 	WLog_ERR(TAG, "Client from %s is activated (%dx%d@%d)",
 			peer->hostname, settings->DesktopWidth, settings->DesktopHeight, settings->ColorDepth);
 
@@ -152,29 +181,121 @@ BOOL shadow_client_post_connect(freerdp_peer* peer)
 
 	region16_union_rect(&(client->invalidRegion), &(client->invalidRegion), &invalidRect);
 
-	lobby = client->lobby = shadow_surface_new(client->server, 0, 0, width, height);
+	shadow_client_init_lobby(client);
 
-	if (!client->lobby)
-		return FALSE;
+	authStatus = -1;
 
-	freerdp_image_fill(lobby->data, PIXEL_FORMAT_XRGB32, lobby->scanline,
-			0, 0, lobby->width, lobby->height, 0x3BB9FF);
+	if (settings->Username && settings->Password)
+		settings->AutoLogonEnabled = TRUE;
 
-	region16_union_rect(&(lobby->invalidRegion), &(lobby->invalidRegion), &invalidRect);
+	if (settings->AutoLogonEnabled && server->authentication)
+	{
+		if (subsystem->Authenticate)
+		{
+			authStatus = subsystem->Authenticate(subsystem,
+					settings->Username, settings->Domain, settings->Password);
+		}
+	}
+
+	if (server->authentication)
+	{
+		if (authStatus < 0)
+		{
+			WLog_ERR(TAG, "client authentication failure: %d", authStatus);
+			return FALSE;
+		}
+	}
 
 	return TRUE;
 }
 
+void shadow_client_refresh_rect(rdpShadowClient* client, BYTE count, RECTANGLE_16* areas)
+{
+	wMessage message = { 0 };
+	SHADOW_MSG_IN_REFRESH_OUTPUT* wParam;
+	wMessagePipe* MsgPipe = client->subsystem->MsgPipe;
+
+	wParam = (SHADOW_MSG_IN_REFRESH_OUTPUT*) calloc(1, sizeof(SHADOW_MSG_IN_REFRESH_OUTPUT));
+
+	if (!wParam || !areas)
+	{
+		if (wParam)
+			free (wParam);
+		return;
+	}
+
+	wParam->numRects = (UINT32) count;
+
+	if (wParam->numRects)
+	{
+		wParam->rects = (RECTANGLE_16*) calloc(wParam->numRects, sizeof(RECTANGLE_16));
+
+		if (!wParam->rects)
+		{
+			free (wParam);
+			return;
+		}
+	}
+
+	CopyMemory(wParam->rects, areas, wParam->numRects * sizeof(RECTANGLE_16));
+
+	message.id = SHADOW_MSG_IN_REFRESH_OUTPUT_ID;
+	message.wParam = (void*) wParam;
+	message.lParam = NULL;
+	message.context = (void*) client;
+	message.Free = shadow_client_message_free;
+
+	MessageQueue_Dispatch(MsgPipe->In, &message);
+}
+
+void shadow_client_suppress_output(rdpShadowClient* client, BYTE allow, RECTANGLE_16* area)
+{
+	wMessage message = { 0 };
+	SHADOW_MSG_IN_SUPPRESS_OUTPUT* wParam;
+	wMessagePipe* MsgPipe = client->subsystem->MsgPipe;
+
+	wParam = (SHADOW_MSG_IN_SUPPRESS_OUTPUT*) calloc(1, sizeof(SHADOW_MSG_IN_SUPPRESS_OUTPUT));
+
+	if (!wParam)
+		return;
+
+	wParam->allow = (UINT32) allow;
+
+	if (area)
+		CopyMemory(&(wParam->rect), area, sizeof(RECTANGLE_16));
+
+	message.id = SHADOW_MSG_IN_SUPPRESS_OUTPUT_ID;
+	message.wParam = (void*) wParam;
+	message.lParam = NULL;
+	message.context = (void*) client;
+	message.Free = shadow_client_message_free;
+
+	MessageQueue_Dispatch(MsgPipe->In, &message);
+}
+
 BOOL shadow_client_activate(freerdp_peer* peer)
 {
-	rdpShadowClient* client;
+	rdpSettings* settings = peer->settings;
+	rdpShadowClient* client = (rdpShadowClient*) peer->context;
 
-	client = (rdpShadowClient*) peer->context;
+	if (settings->ClientDir && (strcmp(settings->ClientDir, "librdp") == 0))
+	{
+		/* Hack for Mac/iOS/Android Microsoft RDP clients */
+
+		settings->RemoteFxCodec = FALSE;
+
+		settings->NSCodec = FALSE;
+		settings->NSCodecAllowSubsampling = FALSE;
+
+		settings->SurfaceFrameMarkerEnabled = FALSE;
+	}
 
 	client->activated = TRUE;
 	client->inLobby = client->mayView ? FALSE : TRUE;
 
 	shadow_encoder_reset(client->encoder);
+
+	shadow_client_refresh_rect(client, 0, NULL);
 
 	return TRUE;
 }
@@ -194,11 +315,6 @@ void shadow_client_surface_frame_acknowledge(rdpShadowClient* client, UINT32 fra
 	}
 }
 
-void shadow_client_suppress_output(rdpShadowClient* client, BYTE allow, RECTANGLE_16* area)
-{
-
-}
-
 int shadow_client_send_surface_frame_marker(rdpShadowClient* client, UINT32 action, UINT32 id)
 {
 	SURFACE_FRAME_MARKER surfaceFrameMarker;
@@ -216,6 +332,8 @@ int shadow_client_send_surface_frame_marker(rdpShadowClient* client, UINT32 acti
 int shadow_client_send_surface_bits(rdpShadowClient* client, rdpShadowSurface* surface, int nXSrc, int nYSrc, int nWidth, int nHeight)
 {
 	int i;
+	BOOL first;
+	BOOL last;
 	wStream* s;
 	int nSrcStep;
 	BYTE* pSrcData;
@@ -254,15 +372,14 @@ int shadow_client_send_surface_bits(rdpShadowClient* client, rdpShadowSurface* s
 	}
 
 	if (encoder->frameAck)
-	{
 		frameId = (UINT32) shadow_encoder_create_frame_id(encoder);
-		shadow_client_send_surface_frame_marker(client, SURFACECMD_FRAMEACTION_BEGIN, frameId);
-	}
 
 	if (settings->RemoteFxCodec)
 	{
 		RFX_RECT rect;
 		RFX_MESSAGE* messages;
+
+		shadow_encoder_prepare(encoder, FREERDP_CODEC_REMOTEFX);
 
 		s = encoder->bs;
 
@@ -295,50 +412,47 @@ int shadow_client_send_surface_bits(rdpShadowClient* client, rdpShadowSurface* s
 			cmd.bitmapDataLength = Stream_GetPosition(s);
 			cmd.bitmapData = Stream_Buffer(s);
 
-			IFCALL(update->SurfaceBits, update->context, &cmd);
+			first = (i == 0) ? TRUE : FALSE;
+			last = ((i + 1) == numMessages) ? TRUE : FALSE;
+
+			if (!encoder->frameAck)
+				IFCALL(update->SurfaceBits, update->context, &cmd);
+			else
+				IFCALL(update->SurfaceFrameBits, update->context, &cmd, first, last, frameId);
 		}
 
 		free(messages);
 	}
 	else if (settings->NSCodec)
 	{
-		NSC_MESSAGE* messages;
+		shadow_encoder_prepare(encoder, FREERDP_CODEC_NSCODEC);
 
 		s = encoder->bs;
+		Stream_SetPosition(s, 0);
 
-		messages = nsc_encode_messages(encoder->nsc, pSrcData,
-				nXSrc, nYSrc, nWidth, nHeight, nSrcStep,
-				&numMessages, settings->MultifragMaxRequestSize);
+		pSrcData = &pSrcData[(nYSrc * nSrcStep) + (nXSrc * 4)];
+
+		nsc_compose_message(encoder->nsc, s, pSrcData, nWidth, nHeight, nSrcStep);
 
 		cmd.bpp = 32;
 		cmd.codecID = settings->NSCodecId;
+		cmd.destLeft = nXSrc;
+		cmd.destTop = nYSrc;
+		cmd.destRight = cmd.destLeft + nWidth;
+		cmd.destBottom = cmd.destTop + nHeight;
+		cmd.width = nWidth;
+		cmd.height = nHeight;
 
-		for (i = 0; i < numMessages; i++)
-		{
-			Stream_SetPosition(s, 0);
+		cmd.bitmapDataLength = Stream_GetPosition(s);
+		cmd.bitmapData = Stream_Buffer(s);
 
-			nsc_write_message(encoder->nsc, s, &messages[i]);
-			nsc_message_free(encoder->nsc, &messages[i]);
+		first = TRUE;
+		last = TRUE;
 
-			cmd.destLeft = messages[i].x;
-			cmd.destTop = messages[i].y;
-			cmd.destRight = messages[i].x + messages[i].width;
-			cmd.destBottom = messages[i].y + messages[i].height;
-			cmd.width = messages[i].width;
-			cmd.height = messages[i].height;
-
-			cmd.bitmapDataLength = Stream_GetPosition(s);
-			cmd.bitmapData = Stream_Buffer(s);
-
+		if (!encoder->frameAck)
 			IFCALL(update->SurfaceBits, update->context, &cmd);
-		}
-
-		free(messages);
-	}
-
-	if (encoder->frameAck)
-	{
-		shadow_client_send_surface_frame_marker(client, SURFACECMD_FRAMEACTION_END, frameId);
+		else
+			IFCALL(update->SurfaceFrameBits, update->context, &cmd, first, last, frameId);
 	}
 
 	return 1;
@@ -348,18 +462,19 @@ int shadow_client_send_bitmap_update(rdpShadowClient* client, rdpShadowSurface* 
 {
 	BYTE* data;
 	BYTE* buffer;
-	int i, j, k;
-	wStream* s;
-	wStream* ts;
-	int e, lines;
+	int yIdx, xIdx, k;
 	int rows, cols;
 	int nSrcStep;
 	BYTE* pSrcData;
+	UINT32 DstSize;
+	UINT32 SrcFormat;
+	BITMAP_DATA* bitmap;
 	rdpUpdate* update;
 	rdpContext* context;
 	rdpSettings* settings;
-	int MaxRegionWidth;
-	int MaxRegionHeight;
+	UINT32 maxUpdateSize;
+	UINT32 totalBitmapSize;
+	UINT32 updateSizeEstimate;
 	BITMAP_DATA* bitmapData;
 	BITMAP_UPDATE bitmapUpdate;
 	rdpShadowServer* server;
@@ -372,11 +487,16 @@ int shadow_client_send_bitmap_update(rdpShadowClient* client, rdpShadowSurface* 
 	server = client->server;
 	encoder = client->encoder;
 
+	maxUpdateSize = settings->MultifragMaxRequestSize;
+
+	if (settings->ColorDepth < 32)
+		shadow_encoder_prepare(encoder, FREERDP_CODEC_INTERLEAVED);
+	else
+		shadow_encoder_prepare(encoder, FREERDP_CODEC_PLANAR);
+
 	pSrcData = surface->data;
 	nSrcStep = surface->scanline;
-
-	MaxRegionWidth = 64 * 4;
-	MaxRegionHeight = 64 * 1;
+	SrcFormat = PIXEL_FORMAT_RGB32;
 
 	if ((nXSrc % 4) != 0)
 	{
@@ -390,39 +510,12 @@ int shadow_client_send_bitmap_update(rdpShadowClient* client, rdpShadowSurface* 
 		nYSrc -= (nYSrc % 4);
 	}
 
-	if ((nWidth * nHeight) > (MaxRegionWidth * MaxRegionHeight))
-	{
-		int nXSrcSub;
-		int nYSrcSub;
-		int nWidthSub;
-		int nHeightSub;
-		rows = (nWidth + (MaxRegionWidth - (nWidth % MaxRegionWidth))) / MaxRegionWidth;
-		cols = (nHeight + (MaxRegionHeight - (nHeight % MaxRegionHeight))) / MaxRegionHeight;
-
-		for (i = 0; i < rows; i++)
-		{
-			for (j = 0; j < cols; j++)
-			{
-				nXSrcSub = nXSrc + (i * MaxRegionWidth);
-				nYSrcSub = nYSrc + (j * MaxRegionHeight);
-
-				nWidthSub = (i < (rows - 1)) ? MaxRegionWidth : nWidth - (i * MaxRegionWidth);
-				nHeightSub = (j < (cols - 1)) ? MaxRegionHeight : nHeight - (j * MaxRegionHeight);
-
-				if ((nWidthSub * nHeightSub) > 0)
-				{
-					shadow_client_send_bitmap_update(client, surface, nXSrcSub, nYSrcSub, nWidthSub, nHeightSub);
-				}
-			}
-		}
-
-		return 1;
-	}
-
-	rows = (nWidth + (64 - (nWidth % 64))) / 64;
-	cols = (nHeight + (64 - (nHeight % 64))) / 64;
+	rows = (nHeight / 64) + ((nHeight % 64) ? 1 : 0);
+	cols = (nWidth / 64) + ((nWidth % 64) ? 1 : 0);
 
 	k = 0;
+	totalBitmapSize = 0;
+
 	bitmapUpdate.count = bitmapUpdate.number = rows * cols;
 	bitmapData = (BITMAP_DATA*) malloc(sizeof(BITMAP_DATA) * bitmapUpdate.number);
 	bitmapUpdate.rectangles = bitmapData;
@@ -442,108 +535,119 @@ int shadow_client_send_bitmap_update(rdpShadowClient* client, rdpShadowSurface* 
 		nHeight += (nHeight % 4);
 	}
 
-	for (i = 0; i < rows; i++)
+	for (yIdx = 0; yIdx < rows; yIdx++)
 	{
-		for (j = 0; j < cols; j++)
+		for (xIdx = 0; xIdx < cols; xIdx++)
 		{
-			nWidth = (i < (rows - 1)) ? 64 : nWidth - (i * 64);
-			nHeight = (j < (cols - 1)) ? 64 : nHeight - (j * 64);
+			bitmap = &bitmapData[k];
 
-			bitmapData[k].bitsPerPixel = 16;
-			bitmapData[k].width = nWidth;
-			bitmapData[k].height = nHeight;
-			bitmapData[k].destLeft = nXSrc + (i * 64);
-			bitmapData[k].destTop = nYSrc + (j * 64);
-			bitmapData[k].destRight = bitmapData[k].destLeft + nWidth - 1;
-			bitmapData[k].destBottom = bitmapData[k].destTop + nHeight - 1;
-			bitmapData[k].compressed = TRUE;
+			bitmap->width = 64;
+			bitmap->height = 64;
+			bitmap->destLeft = nXSrc + (xIdx * 64);
+			bitmap->destTop = nYSrc + (yIdx * 64);
 
-			if (((nWidth * nHeight) > 0) && (nWidth >= 4) && (nHeight >= 4))
+			if ((bitmap->destLeft + bitmap->width) > (nXSrc + nWidth))
+				bitmap->width = (nXSrc + nWidth) - bitmap->destLeft;
+
+			if ((bitmap->destTop + bitmap->height) > (nYSrc + nHeight))
+				bitmap->height = (nYSrc + nHeight) - bitmap->destTop;
+
+			bitmap->destRight = bitmap->destLeft + bitmap->width - 1;
+			bitmap->destBottom = bitmap->destTop + bitmap->height - 1;
+			bitmap->compressed = TRUE;
+
+			if ((bitmap->width < 4) || (bitmap->height < 4))
+				continue;
+
+			if (settings->ColorDepth < 32)
 			{
-				UINT32 srcFormat = PIXEL_FORMAT_RGB32;
+				int bitsPerPixel = settings->ColorDepth;
+				int bytesPerPixel = (bitsPerPixel + 7) / 8;
 
-				e = nWidth % 4;
+				DstSize = 64 * 64 * 4;
+				buffer = encoder->grid[k];
 
-				if (e != 0)
-					e = 4 - e;
+				interleaved_compress(encoder->interleaved, buffer, &DstSize, bitmap->width, bitmap->height,
+						pSrcData, SrcFormat, nSrcStep, bitmap->destLeft, bitmap->destTop, NULL, bitsPerPixel);
 
-				s = encoder->bs;
-				ts = encoder->bts;
-
-				Stream_SetPosition(s, 0);
-				Stream_SetPosition(ts, 0);
-
-				data = surface->data;
-				data = &data[(bitmapData[k].destTop * nSrcStep) +
-				             (bitmapData[k].destLeft * 4)];
-
-				srcFormat = PIXEL_FORMAT_RGB32;
-
-				if (settings->ColorDepth > 24)
-				{
-					int dstSize;
-
-					buffer = encoder->grid[k];
-
-					buffer = freerdp_bitmap_compress_planar(encoder->planar,
-							data, srcFormat, nWidth, nHeight, nSrcStep, buffer, &dstSize);
-
-					bitmapData[k].bitmapDataStream = buffer;
-					bitmapData[k].bitmapLength = dstSize;
-
-					bitmapData[k].bitsPerPixel = 32;
-					bitmapData[k].cbScanWidth = nWidth * 4;
-					bitmapData[k].cbUncompressedSize = nWidth * nHeight * 4;
-				}
-				else
-				{
-					int bytesPerPixel = 2;
-					UINT32 dstFormat = PIXEL_FORMAT_RGB16;
-
-					if (settings->ColorDepth == 15)
-					{
-						bytesPerPixel = 2;
-						dstFormat = PIXEL_FORMAT_RGB15;
-					}
-					else if (settings->ColorDepth == 24)
-					{
-						bytesPerPixel = 3;
-						dstFormat = PIXEL_FORMAT_XRGB32;
-					}
-
-					buffer = encoder->grid[k];
-
-					freerdp_image_copy(buffer, dstFormat, -1, 0, 0, nWidth, nHeight,
-							data, srcFormat, nSrcStep, 0, 0, NULL);
-
-					lines = freerdp_bitmap_compress((char*) buffer, nWidth, nHeight, s,
-							settings->ColorDepth, 64 * 64 * 4, nHeight - 1, ts, e);
-
-					Stream_SealLength(s);
-
-					bitmapData[k].bitmapDataStream = Stream_Buffer(s);
-					bitmapData[k].bitmapLength = Stream_Length(s);
-
-					buffer = encoder->grid[k];
-					CopyMemory(buffer, bitmapData[k].bitmapDataStream, bitmapData[k].bitmapLength);
-					bitmapData[k].bitmapDataStream = buffer;
-
-					bitmapData[k].bitsPerPixel = settings->ColorDepth;
-					bitmapData[k].cbScanWidth = nWidth * bytesPerPixel;
-					bitmapData[k].cbUncompressedSize = nWidth * nHeight * bytesPerPixel;
-				}
-
-				bitmapData[k].cbCompFirstRowSize = 0;
-				bitmapData[k].cbCompMainBodySize = bitmapData[k].bitmapLength;
-
-				k++;
+				bitmap->bitmapDataStream = buffer;
+				bitmap->bitmapLength = DstSize;
+				bitmap->bitsPerPixel = bitsPerPixel;
+				bitmap->cbScanWidth = bitmap->width * bytesPerPixel;
+				bitmap->cbUncompressedSize = bitmap->width * bitmap->height * bytesPerPixel;
 			}
+			else
+			{
+				int dstSize;
+
+				buffer = encoder->grid[k];
+				data = &pSrcData[(bitmap->destTop * nSrcStep) + (bitmap->destLeft * 4)];
+
+				buffer = freerdp_bitmap_compress_planar(encoder->planar, data, SrcFormat,
+						bitmap->width, bitmap->height, nSrcStep, buffer, &dstSize);
+
+				bitmap->bitmapDataStream = buffer;
+				bitmap->bitmapLength = dstSize;
+				bitmap->bitsPerPixel = 32;
+				bitmap->cbScanWidth = bitmap->width * 4;
+				bitmap->cbUncompressedSize = bitmap->width * bitmap->height * 4;
+			}
+
+			bitmap->cbCompFirstRowSize = 0;
+			bitmap->cbCompMainBodySize = bitmap->bitmapLength;
+
+			totalBitmapSize += bitmap->bitmapLength;
+			k++;
 		}
 	}
 
 	bitmapUpdate.count = bitmapUpdate.number = k;
 
-	IFCALL(update->BitmapUpdate, context, &bitmapUpdate);
+	updateSizeEstimate = totalBitmapSize + (k * bitmapUpdate.count) + 16;
+
+	if (updateSizeEstimate > maxUpdateSize)
+	{
+		UINT32 i, j;
+		UINT32 updateSize;
+		UINT32 newUpdateSize;
+		BITMAP_DATA* fragBitmapData;
+
+		fragBitmapData = (BITMAP_DATA*) malloc(sizeof(BITMAP_DATA) * k);
+		bitmapUpdate.rectangles = fragBitmapData;
+
+		i = j = 0;
+		updateSize = 1024;
+
+		while (i < k)
+		{
+			newUpdateSize = updateSize + (bitmapData[i].bitmapLength + 16);
+
+			if ((newUpdateSize < maxUpdateSize) && ((i + 1) < k))
+			{
+				CopyMemory(&fragBitmapData[j++], &bitmapData[i++], sizeof(BITMAP_DATA));
+				updateSize = newUpdateSize;
+			}
+			else
+			{
+				if ((i + 1) >= k)
+				{
+					CopyMemory(&fragBitmapData[j++], &bitmapData[i++], sizeof(BITMAP_DATA));
+					updateSize = newUpdateSize;
+				}
+				
+				bitmapUpdate.count = bitmapUpdate.number = j;
+				IFCALL(update->BitmapUpdate, context, &bitmapUpdate);
+				updateSize = 1024;
+				j = 0;
+			}
+		}
+
+		free(fragBitmapData);
+	}
+	else
+	{
+		IFCALL(update->BitmapUpdate, context, &bitmapUpdate);
+	}
 
 	free(bitmapData);
 
@@ -609,17 +713,10 @@ int shadow_client_send_surface_update(rdpShadowClient* client)
 
 	if (settings->RemoteFxCodec || settings->NSCodec)
 	{
-		if (settings->RemoteFxCodec)
-			shadow_encoder_prepare(encoder, SHADOW_CODEC_REMOTEFX);
-		else if (settings->NSCodec)
-			shadow_encoder_prepare(encoder, SHADOW_CODEC_NSCODEC);
-
 		status = shadow_client_send_surface_bits(client, surface, nXSrc, nYSrc, nWidth, nHeight);
 	}
 	else
 	{
-		shadow_encoder_prepare(encoder, SHADOW_CODEC_BITMAP);
-
 		status = shadow_client_send_bitmap_update(client, surface, nXSrc, nYSrc, nWidth, nHeight);
 	}
 
@@ -648,28 +745,172 @@ int shadow_client_surface_update(rdpShadowClient* client, REGION16* region)
 	return 1;
 }
 
+int shadow_client_convert_alpha_pointer_data(BYTE* pixels, BOOL premultiplied,
+		UINT32 width, UINT32 height, POINTER_COLOR_UPDATE* pointerColor)
+{
+	UINT32 x, y;
+	BYTE* pSrc8;
+	BYTE* pDst8;
+	int xorStep;
+	int andStep;
+	UINT32 andBit;
+	BYTE* andBits;
+	UINT32 andPixel;
+	BYTE A, R, G, B;
+
+	xorStep = (width * 3);
+	xorStep += (xorStep % 2);
+
+	andStep = ((width + 7) / 8);
+	andStep += (andStep % 2);
+
+	pointerColor->lengthXorMask = height * xorStep;
+	pointerColor->xorMaskData = (BYTE*) calloc(1, pointerColor->lengthXorMask);
+
+	if (!pointerColor->xorMaskData)
+		return -1;
+
+	pointerColor->lengthAndMask = height * andStep;
+	pointerColor->andMaskData = (BYTE*) calloc(1, pointerColor->lengthAndMask);
+
+	if (!pointerColor->andMaskData)
+		return -1;
+
+	for (y = 0; y < height; y++)
+	{
+		pSrc8 = &pixels[(width * 4) * (height - 1 - y)];
+		pDst8 = &(pointerColor->xorMaskData[y * xorStep]);
+
+		andBit = 0x80;
+		andBits = &(pointerColor->andMaskData[andStep * y]);
+
+		for (x = 0; x < width; x++)
+		{
+			B = *pSrc8++;
+			G = *pSrc8++;
+			R = *pSrc8++;
+			A = *pSrc8++;
+
+			andPixel = 0;
+
+			if (A < 64)
+				A = 0; /* pixel cannot be partially transparent */
+
+			if (!A)
+			{
+				/* transparent pixel: XOR = black, AND = 1 */
+				andPixel = 1;
+				B = G = R = 0;
+			}
+			else
+			{
+				if (premultiplied)
+				{
+					B = (B * 0xFF ) / A;
+					G = (G * 0xFF ) / A;
+					R = (R * 0xFF ) / A;
+				}
+			}
+
+			*pDst8++ = B;
+			*pDst8++ = G;
+			*pDst8++ = R;
+
+			if (andPixel) *andBits |= andBit;
+			if (!(andBit >>= 1)) { andBits++; andBit = 0x80; }
+		}
+	}
+
+	return 1;
+}
+
+int shadow_client_subsystem_process_message(rdpShadowClient* client, wMessage* message)
+{
+	rdpContext* context = (rdpContext*) client;
+	rdpUpdate* update = context->update;
+
+	/* FIXME: the pointer updates appear to be broken when used with bulk compression and mstsc */
+
+	if (message->id == SHADOW_MSG_OUT_POINTER_POSITION_UPDATE_ID)
+	{
+		POINTER_POSITION_UPDATE pointerPosition;
+		SHADOW_MSG_OUT_POINTER_POSITION_UPDATE* msg = (SHADOW_MSG_OUT_POINTER_POSITION_UPDATE*) message->wParam;
+
+		pointerPosition.xPos = msg->xPos;
+		pointerPosition.yPos = msg->yPos;
+
+		if ((msg->xPos != client->pointerX) || (msg->yPos != client->pointerY))
+		{
+			IFCALL(update->pointer->PointerPosition, context, &pointerPosition);
+
+			client->pointerX = msg->xPos;
+			client->pointerY = msg->yPos;
+		}
+
+		free(msg);
+	}
+	else if (message->id == SHADOW_MSG_OUT_POINTER_ALPHA_UPDATE_ID)
+	{
+		POINTER_NEW_UPDATE pointerNew;
+		POINTER_COLOR_UPDATE* pointerColor;
+		POINTER_CACHED_UPDATE pointerCached;
+		SHADOW_MSG_OUT_POINTER_ALPHA_UPDATE* msg = (SHADOW_MSG_OUT_POINTER_ALPHA_UPDATE*) message->wParam;
+
+		ZeroMemory(&pointerNew, sizeof(POINTER_NEW_UPDATE));
+
+		pointerNew.xorBpp = 24;
+		pointerColor = &(pointerNew.colorPtrAttr);
+
+		pointerColor->cacheIndex = 0;
+		pointerColor->xPos = msg->xHot;
+		pointerColor->yPos = msg->yHot;
+		pointerColor->width = msg->width;
+		pointerColor->height = msg->height;
+
+		pointerCached.cacheIndex = pointerColor->cacheIndex;
+
+		shadow_client_convert_alpha_pointer_data(msg->pixels, msg->premultiplied,
+				msg->width, msg->height, pointerColor);
+
+		IFCALL(update->pointer->PointerNew, context, &pointerNew);
+		IFCALL(update->pointer->PointerCached, context, &pointerCached);
+
+		free(pointerColor->xorMaskData);
+		free(pointerColor->andMaskData);
+
+		free(msg->pixels);
+		free(msg);
+	}
+
+	return 1;
+}
+
 void* shadow_client_thread(rdpShadowClient* client)
 {
 	DWORD status;
 	DWORD nCount;
+	wMessage message;
 	HANDLE events[32];
 	HANDLE StopEvent;
 	HANDLE ClientEvent;
 	HANDLE ChannelEvent;
 	HANDLE UpdateEvent;
 	freerdp_peer* peer;
+	rdpContext* context;
 	rdpSettings* settings;
 	rdpShadowServer* server;
 	rdpShadowScreen* screen;
 	rdpShadowEncoder* encoder;
 	rdpShadowSubsystem* subsystem;
+	wMessagePipe* MsgPipe = client->subsystem->MsgPipe;
 
 	server = client->server;
 	screen = server->screen;
 	encoder = client->encoder;
 	subsystem = server->subsystem;
 
-	peer = ((rdpContext*) client)->peer;
+	context = (rdpContext*) client;
+	peer = context->peer;
 	settings = peer->settings;
 
 	peer->Capabilities = shadow_client_capabilities;
@@ -680,9 +921,9 @@ void* shadow_client_thread(rdpShadowClient* client)
 
 	peer->Initialize(peer);
 
-	peer->update->SurfaceFrameAcknowledge = (pSurfaceFrameAcknowledge)
-			shadow_client_surface_frame_acknowledge;
+	peer->update->RefreshRect = (pRefreshRect) shadow_client_refresh_rect;
 	peer->update->SuppressOutput = (pSuppressOutput) shadow_client_suppress_output;
+	peer->update->SurfaceFrameAcknowledge = (pSurfaceFrameAcknowledge) shadow_client_surface_frame_acknowledge;
 
 	StopEvent = client->StopEvent;
 	UpdateEvent = subsystem->updateEvent;
@@ -696,6 +937,7 @@ void* shadow_client_thread(rdpShadowClient* client)
 		events[nCount++] = UpdateEvent;
 		events[nCount++] = ClientEvent;
 		events[nCount++] = ChannelEvent;
+		events[nCount++] = MessageQueue_Event(MsgPipe->Out);
 
 		status = WaitForMultipleObjects(nCount, events, FALSE, INFINITE);
 
@@ -743,10 +985,21 @@ void* shadow_client_thread(rdpShadowClient* client)
 
 		if (WaitForSingleObject(ChannelEvent, 0) == WAIT_OBJECT_0)
 		{
-			if (WTSVirtualChannelManagerCheckFileDescriptor(client->vcm) != TRUE)
+			if (!WTSVirtualChannelManagerCheckFileDescriptor(client->vcm))
 			{
 				WLog_ERR(TAG, "WTSVirtualChannelManagerCheckFileDescriptor failure");
 				break;
+			}
+		}
+
+		if (WaitForSingleObject(MessageQueue_Event(MsgPipe->Out), 0) == WAIT_OBJECT_0)
+		{
+			if (MessageQueue_Peek(MsgPipe->Out, &message, TRUE))
+			{
+				if (message.id == WMQ_QUIT)
+					break;
+
+				shadow_client_subsystem_process_message(client, &message);
 			}
 		}
 	}

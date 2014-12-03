@@ -110,8 +110,17 @@ int disp_send_display_control_monitor_layout_pdu(DISP_CHANNEL_CALLBACK* callback
 		if (Monitors[index].Width < 200)
 			Monitors[index].Width = 200;
 
+		if (Monitors[index].Width > 8192)
+			Monitors[index].Width = 8192;
+
+		if (Monitors[index].Width % 2)
+			Monitors[index].Width++;
+
 		if (Monitors[index].Height < 200)
 			Monitors[index].Height = 200;
+
+		if (Monitors[index].Height > 8192)
+			Monitors[index].Height = 8192;
 
 		Stream_Write_UINT32(s, Monitors[index].Flags); /* Flags (4 bytes) */
 		Stream_Write_UINT32(s, Monitors[index].Left); /* Left (4 bytes) */
@@ -283,7 +292,11 @@ int disp_send_monitor_layout(DispClientContext* context, UINT32 NumMonitors, DIS
 	return 1;
 }
 
-int disp_DVCPluginEntry(IDRDYNVC_ENTRY_POINTS* pEntryPoints)
+#ifdef STATIC_CHANNELS
+#define DVCPluginEntry		disp_DVCPluginEntry
+#endif
+
+int DVCPluginEntry(IDRDYNVC_ENTRY_POINTS* pEntryPoints)
 {
 	int error = 0;
 	DISP_PLUGIN* disp;
@@ -306,7 +319,10 @@ int disp_DVCPluginEntry(IDRDYNVC_ENTRY_POINTS* pEntryPoints)
 		context = (DispClientContext*) calloc(1, sizeof(DispClientContext));
 
 		if (!context)
+		{
+			free(disp);
 			return -1;
+		}
 
 		context->handle = (void*) disp;
 

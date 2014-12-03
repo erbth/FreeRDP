@@ -26,6 +26,22 @@ elseif(APPLE AND NOT IOS)
 	set(WITH_SHADOW_MAC 1)
 endif()
 
+# Authentication
+
+if(WITH_SHADOW_X11 OR WITH_SHADOW_MAC)
+	set(PAM_FEATURE_TYPE "RECOMMENDED")
+	set(PAM_FEATURE_PURPOSE "authentication")
+	set(PAM_FEATURE_DESCRIPTION "user authentication")
+
+	find_feature(PAM ${PAM_FEATURE_TYPE} ${PAM_FEATURE_PURPOSE} ${PAM_FEATURE_DESCRIPTION})
+
+	if(PAM_FOUND)
+		add_definitions(-DWITH_PAM)
+		include_directories(${PAM_INCLUDE_DIR})
+		list(APPEND ${MODULE_PREFIX}_AUTH_LIBS ${PAM_LIBRARY})
+	endif()
+endif()
+
 if(WITH_SHADOW_X11)
 	set(XEXT_FEATURE_TYPE "RECOMMENDED")
 	set(XEXT_FEATURE_PURPOSE "X11 extension")
@@ -135,6 +151,8 @@ include_directories(${OPENSSL_INCLUDE_DIR})
 set(${MODULE_PREFIX}_SRCS
 	shadow_client.c
 	shadow_client.h
+	shadow_lobby.c
+	shadow_lobby.h
 	shadow_input.c
 	shadow_input.h
 	shadow_screen.c
@@ -151,6 +169,8 @@ set(${MODULE_PREFIX}_SRCS
 	shadow_encomsp.h
 	shadow_remdesk.c
 	shadow_remdesk.h
+	shadow_subsystem.c
+	shadow_subsystem.h
 	shadow_server.c
 	shadow.h)
 
@@ -186,9 +206,26 @@ elseif(WITH_SHADOW_MAC)
 	list(APPEND ${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_MAC_LIBS})
 endif()
 
-add_executable(${MODULE_NAME} ${${MODULE_PREFIX}_SRCS})
+list(APPEND ${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_AUTH_LIBS})
 
-set_target_properties(${MODULE_NAME} PROPERTIES OUTPUT_NAME "freerdp-shadow")
+# On windows create dll version information.
+# Vendor, product and year are already set in top level CMakeLists.txt
+if (WIN32)
+  set (RC_VERSION_MAJOR ${FREERDP_VERSION_MAJOR})
+  set (RC_VERSION_MINOR ${FREERDP_VERSION_MINOR})
+  set (RC_VERSION_BUILD ${FREERDP_VERSION_REVISION})
+  set (RC_VERSION_PATCH 0)
+  set (RC_VERSION_FILE "${CMAKE_SHARED_LIBRARY_PREFIX}${MODULE_NAME}${CMAKE_SHARED_LIBRARY_SUFFIX}" )
+
+  configure_file(
+    ${CMAKE_SOURCE_DIR}/cmake/WindowsDLLVersion.rc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/version.rc
+    @ONLY)
+
+  set ( ${MODULE_PREFIX}_SRCS ${${MODULE_PREFIX}_SRCS} ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
+endif()
+
+add_library(${MODULE_NAME} ${${MODULE_PREFIX}_SRCS})
 
 list(APPEND ${MODULE_PREFIX}_LIBS freerdp)
 list(APPEND ${MODULE_PREFIX}_LIBS freerdp-server)
@@ -197,9 +234,45 @@ list(APPEND ${MODULE_PREFIX}_LIBS freerdp-client)
 list(APPEND ${MODULE_PREFIX}_LIBS winpr)
 list(APPEND ${MODULE_PREFIX}_LIBS winpr-makecert-tool)
 
+list(APPEND ${MODULE_PREFIX}_LIBS rdtk)
+
 target_link_libraries(${MODULE_NAME} ${${MODULE_PREFIX}_LIBS})
 
-install(TARGETS ${MODULE_NAME} DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT server)
+install(TARGETS ${MODULE_NAME} DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT server)
 
 set_property(TARGET ${MODULE_NAME} PROPERTY FOLDER "Server/shadow")
 
+# command-line executable
+
+set(MODULE_NAME "freerdp-shadow-cli")
+set(MODULE_PREFIX "FREERDP_SERVER_SHADOW_CLI")
+
+set(${MODULE_PREFIX}_SRCS
+	shadow.c)
+
+	# On windows create dll version information.
+# Vendor, product and year are already set in top level CMakeLists.txt
+if (WIN32)
+  set (RC_VERSION_MAJOR ${FREERDP_VERSION_MAJOR})
+  set (RC_VERSION_MINOR ${FREERDP_VERSION_MINOR})
+  set (RC_VERSION_BUILD ${FREERDP_VERSION_REVISION})
+  set (RC_VERSION_FILE "${MODULE_NAME}${CMAKE_EXECUTABLE_SUFFIX}" )
+
+  configure_file(
+    ${CMAKE_SOURCE_DIR}/cmake/WindowsDLLVersion.rc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/version.rc
+    @ONLY)
+
+  set ( ${MODULE_PREFIX}_SRCS ${${MODULE_PREFIX}_SRCS} ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
+endif()
+
+add_executable(${MODULE_NAME} ${${MODULE_PREFIX}_SRCS})
+set_target_properties(${MODULE_NAME} PROPERTIES OUTPUT_NAME "freerdp-shadow")
+
+set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} freerdp-shadow)
+
+target_link_libraries(${MODULE_NAME} ${${MODULE_PREFIX}_LIBS})
+
+install(TARGETS ${MODULE_NAME} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT server)
+
+set_property(TARGET ${MODULE_NAME} PROPERTY FOLDER "Server/shadow")

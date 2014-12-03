@@ -29,11 +29,26 @@
 
 int gdi_ResetGraphics(RdpgfxClientContext* context, RDPGFX_RESET_GRAPHICS_PDU* resetGraphics)
 {
+	UINT32 DesktopWidth;
+	UINT32 DesktopHeight;
 	rdpGdi* gdi = (rdpGdi*) context->custom;
+	rdpUpdate* update = gdi->context->update;
+	rdpSettings* settings = gdi->context->settings;
 
-	freerdp_client_codecs_reset(gdi->codecs, FREERDP_CODEC_ALL);
+	DesktopWidth = resetGraphics->width;
+	DesktopHeight = resetGraphics->height;
 
 	region16_init(&(gdi->invalidRegion));
+
+	if ((DesktopWidth != settings->DesktopWidth) ||
+			(DesktopHeight != settings->DesktopHeight))
+	{
+		settings->DesktopWidth = DesktopWidth;
+		settings->DesktopHeight = DesktopHeight;
+
+		if (update)
+			update->DesktopResize(gdi->context);
+	}
 
 	gdi->graphicsReset = TRUE;
 
@@ -555,7 +570,10 @@ int gdi_CreateSurface(RdpgfxClientContext* context, RDPGFX_CREATE_SURFACE_PDU* c
 	surface->data = (BYTE*) calloc(1, surface->scanline * surface->height);
 
 	if (!surface->data)
+	{
+		free (surface);
 		return -1;
+	}
 
 	context->SetSurfaceData(context, surface->surfaceId, (void*) surface);
 
@@ -722,7 +740,10 @@ int gdi_SurfaceToCache(RdpgfxClientContext* context, RDPGFX_SURFACE_TO_CACHE_PDU
 	cacheEntry->data = (BYTE*) calloc(1, cacheEntry->scanline * cacheEntry->height);
 
 	if (!cacheEntry->data)
+	{
+		free (cacheEntry);
 		return -1;
+	}
 
 	freerdp_image_copy(cacheEntry->data, cacheEntry->format, cacheEntry->scanline,
 			0, 0, cacheEntry->width, cacheEntry->height, surface->data,

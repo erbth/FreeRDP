@@ -206,7 +206,10 @@ int rdpgfx_recv_reset_graphics_pdu(RDPGFX_CHANNEL_CALLBACK* callback, wStream* s
 	pad = 340 - (RDPGFX_HEADER_SIZE + 12 + (pdu.monitorCount * 20));
 
 	if (Stream_GetRemainingLength(s) < (size_t) pad)
+	{
+		free(pdu.monitorDefArray);
 		return -1;
+	}
 
 	Stream_Seek(s, pad); /* pad (total size is 340 bytes) */
 
@@ -1049,7 +1052,11 @@ void* rdpgfx_get_cache_slot_data(RdpgfxClientContext* context, UINT16 cacheSlot)
 	return pData;
 }
 
-int rdpgfx_DVCPluginEntry(IDRDYNVC_ENTRY_POINTS* pEntryPoints)
+#ifdef STATIC_CHANNELS
+#define DVCPluginEntry		rdpgfx_DVCPluginEntry
+#endif
+
+int DVCPluginEntry(IDRDYNVC_ENTRY_POINTS* pEntryPoints)
 {
 	int status = 0;
 	RDPGFX_PLUGIN* gfx;
@@ -1075,7 +1082,10 @@ int rdpgfx_DVCPluginEntry(IDRDYNVC_ENTRY_POINTS* pEntryPoints)
 		gfx->SurfaceTable = HashTable_New(TRUE);
 
 		if (!gfx->SurfaceTable)
+		{
+			free (gfx);
 			return -1;
+		}
 
 		gfx->ThinClient = gfx->settings->GfxThinClient;
 		gfx->SmallCache = gfx->settings->GfxSmallCache;
@@ -1094,7 +1104,10 @@ int rdpgfx_DVCPluginEntry(IDRDYNVC_ENTRY_POINTS* pEntryPoints)
 		context = (RdpgfxClientContext*) calloc(1, sizeof(RdpgfxClientContext));
 
 		if (!context)
+		{
+			free (gfx);
 			return -1;
+		}
 
 		context->handle = (void*) gfx;
 
@@ -1108,7 +1121,11 @@ int rdpgfx_DVCPluginEntry(IDRDYNVC_ENTRY_POINTS* pEntryPoints)
 		gfx->zgfx = zgfx_context_new(FALSE);
 
 		if (!gfx->zgfx)
+		{
+			free (gfx);
+			free (context);
 			return -1;
+		}
 
 		status = pEntryPoints->RegisterPlugin(pEntryPoints, "rdpgfx", (IWTSPlugin*) gfx);
 	}

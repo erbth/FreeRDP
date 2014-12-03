@@ -853,7 +853,7 @@ BOOL mcs_send_attach_user_confirm(rdpMcs* mcs)
 	s = Stream_New(NULL, length);
 	settings = mcs->transport->settings;
 
-	mcs->userId = MCS_GLOBAL_CHANNEL_ID + 1 + mcs->channelCount;
+	mcs->userId = mcs->baseChannelId++;
 
 	mcs_write_domain_mcspdu_header(s, DomainMCSPDU_AttachUserConfirm, length, 2);
 
@@ -1059,7 +1059,8 @@ rdpMcs* mcs_new(rdpTransport* transport)
 {
 	rdpMcs* mcs;
 
-	mcs = (rdpMcs *)calloc(1, sizeof(rdpMcs));
+	mcs = (rdpMcs*) calloc(1, sizeof(rdpMcs));
+
 	if (!mcs)
 		return NULL;
 
@@ -1073,7 +1074,11 @@ rdpMcs* mcs_new(rdpTransport* transport)
 
 	mcs->channelCount = 0;
 	mcs->channelMaxCount = CHANNEL_MAX_COUNT;
-	mcs->channels = (rdpMcsChannel *)calloc(mcs->channelMaxCount, sizeof(rdpMcsChannel));
+
+	mcs->baseChannelId = MCS_GLOBAL_CHANNEL_ID + 1;
+
+	mcs->channels = (rdpMcsChannel*) calloc(mcs->channelMaxCount, sizeof(rdpMcsChannel));
+
 	if (!mcs->channels)
 		goto out_free;
 

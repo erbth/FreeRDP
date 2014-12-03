@@ -53,6 +53,7 @@ typedef struct _SERIAL_DEVICE SERIAL_DEVICE;
 struct _SERIAL_DEVICE
 {
 	DEVICE device;
+	BOOL permissive;
 	SERIAL_DRIVER_ID ServerSerialDriverId;
 	HANDLE* hComm;
 
@@ -174,7 +175,7 @@ static void serial_process_irp_create(SERIAL_DEVICE* serial, IRP* irp)
 
 	if (!serial->hComm || (serial->hComm == INVALID_HANDLE_VALUE))
 	{
-		WLog_Print(serial->log, WLOG_WARN, "CreateFile failure: %s last-error: Ox%lX\n", serial->device.name, GetLastError());
+		WLog_Print(serial->log, WLOG_WARN, "CreateFile failure: %s last-error: 0x%lX\n", serial->device.name, GetLastError());
 
 		irp->IoStatus = STATUS_UNSUCCESSFUL;
 		goto error_handle;
@@ -182,11 +183,7 @@ static void serial_process_irp_create(SERIAL_DEVICE* serial, IRP* irp)
 
 	_comm_setServerSerialDriver(serial->hComm, serial->ServerSerialDriverId);
 
-	/* FIXME: Appeared to be useful to setup some devices. Guess
-	 * the device driver asked to setup some unsupported feature
-	 * that were not eventually used. TODO: collecting more
-	 * details, a command line argument? */
-	/* _comm_set_permissive(serial->hComm, TRUE); */
+	_comm_set_permissive(serial->hComm, serial->permissive);
 
 	/* NOTE: binary mode/raw mode required for the redirection. On
 	 * Linux, CommCreateFileA forces this setting.
@@ -816,6 +813,21 @@ int DeviceServiceEntry(PDEVICE_SERVICE_ENTRY_POINTS pEntryPoints)
 			/* default driver */
 			serial->ServerSerialDriverId = SerialDriverSerCx2Sys;
 		}
+
+
+		if (device->Permissive != NULL)
+		{
+			if (_stricmp(device->Permissive, "permissive") == 0)
+			{
+				serial->permissive = TRUE;
+			}
+			else
+			{
+				WLog_Print(serial->log, WLOG_DEBUG, "Unknown flag: %s", device->Permissive);
+				assert(FALSE);
+			}
+		}
+
 
 		WLog_Print(serial->log, WLOG_DEBUG, "Server's serial driver: %s (id: %d)", driver, serial->ServerSerialDriverId);
 		/* TODO: implement auto detection of the server's serial driver */

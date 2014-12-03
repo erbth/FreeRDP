@@ -32,7 +32,8 @@
 #include <winpr/crt.h>
 #include <winpr/winsock.h>
 
-#ifndef _WIN32
+#if !defined(_WIN32)
+
 #include <netdb.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
@@ -40,6 +41,8 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <net/if.h>
+#include <sys/types.h>
+#include <arpa/inet.h>
 
 #ifdef HAVE_POLL_H
 #include <poll.h>
@@ -63,11 +66,19 @@
 #endif
 #endif
 
+#else
+
+#include <winpr/windows.h>
+
+#include <winpr/crt.h>
+
+#define SHUT_RDWR SD_BOTH
+#define close(_fd) closesocket(_fd)
+
 #endif
 
 #include <freerdp/log.h>
-#include <freerdp/utils/tcp.h>
-#include <freerdp/utils/uds.h>
+
 #include <winpr/stream.h>
 
 #include "tcp.h"
@@ -430,7 +441,7 @@ BOOL transport_bio_buffered_drain(BIO *bio)
 	return status >= 0;
 }
 
-void tcp_get_ip_address(rdpTcp* tcp)
+void freerdp_tcp_get_ip_address(rdpTcp* tcp)
 {
 	BYTE* ip;
 	socklen_t length;
@@ -456,7 +467,7 @@ void tcp_get_ip_address(rdpTcp* tcp)
 	tcp->settings->ClientAddress = _strdup(tcp->ip_address);
 }
 
-void tcp_get_mac_address(rdpTcp* tcp)
+void freerdp_tcp_get_mac_address(rdpTcp* tcp)
 {
 #ifdef LINUX
 	BYTE* mac;
@@ -488,7 +499,39 @@ void tcp_get_mac_address(rdpTcp* tcp)
 		mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]); */
 }
 
-BOOL tcp_connect(rdpTcp* tcp, const char* hostname, int port, int timeout)
+int uds_connect(const char* path)
+{
+#ifndef _WIN32
+	int status;
+	int sockfd;
+	struct sockaddr_un addr;
+
+	sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
+
+	if (sockfd == -1)
+	{
+		WLog_ERR(TAG, "socket");
+		return -1;
+	}
+
+	addr.sun_family = AF_UNIX;
+	strncpy(addr.sun_path, path, sizeof(addr.sun_path));
+	status = connect(sockfd, (struct sockaddr *) &addr, sizeof(addr));
+
+	if (status < 0)
+	{
+		WLog_ERR(TAG, "connect");
+		close(sockfd);
+		return -1;
+	}
+
+	return sockfd;
+#else /* ifndef _WIN32 */
+	return -1;
+#endif
+}
+
+BOOL freerdp_tcp_connect(rdpTcp* tcp, const char* hostname, int port, int timeout)
 {
 	int status;
 	UINT32 option_value;
@@ -502,7 +545,7 @@ BOOL tcp_connect(rdpTcp* tcp, const char* hostname, int port, int timeout)
 
 	if (tcp->ipcSocket)
 	{
-		tcp->sockfd = freerdp_uds_connect(hostname);
+		tcp->sockfd = uds_connect(hostname);
 
 		if (tcp->sockfd < 0)
 			return FALSE;
@@ -523,6 +566,7 @@ BOOL tcp_connect(rdpTcp* tcp, const char* hostname, int port, int timeout)
 		struct timeval tv;
 #endif
 
+#ifdef NO_IPV6
 		tcp->socketBio = BIO_new(BIO_s_connect());
 
 		if (!tcp->socketBio)
@@ -542,6 +586,58 @@ BOOL tcp_connect(rdpTcp* tcp, const char* hostname, int port, int timeout)
 
 		if (tcp->sockfd < 0)
 			return FALSE;
+#else /* NO_IPV6 */
+		struct addrinfo hints = {0};
+		struct addrinfo *result;
+		struct addrinfo *tmp;
+		char port_str[11];
+
+		//ZeroMemory(&hints, sizeof(struct addrinfo));
+		hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
+		hints.ai_socktype = SOCK_STREAM;
+		/*
+		 * FIXME: the following is a nasty workaround. Find a cleaner way:
+		 * Either set port manually afterwards or get it passed as string?
+		 */
+		sprintf_s(port_str, 11, "%u", port);
+
+		status = getaddrinfo(hostname, port_str, &hints, &result);
+		if (status) {
+			WLog_ERR(TAG, "getaddrinfo: %s", gai_strerror(status));
+			return FALSE;
+		}
+
+		/* For now prefer IPv4 over IPv6. */
+		tmp = result;
+		if (tmp->ai_family == AF_INET6 && tmp->ai_next != 0)
+		{
+			while ((tmp = tmp->ai_next))
+			{
+				if (tmp->ai_family == AF_INET)
+					break;
+			}
+			if (!tmp)
+				tmp = result;
+		}
+		tcp->sockfd = socket(tmp->ai_family, tmp->ai_socktype, tmp->ai_protocol);
+
+		if (tcp->sockfd  < 0) {
+			freeaddrinfo(result);
+			return FALSE;
+		}
+
+		if (connect(tcp->sockfd, tmp->ai_addr, tmp->ai_addrlen) < 0) {
+			WLog_ERR(TAG, "connect: %s", strerror(errno));
+			freeaddrinfo(result);
+			return FALSE;
+		}
+		freeaddrinfo(result);
+		tcp->socketBio = BIO_new_socket(tcp->sockfd, BIO_NOCLOSE);
+
+		/* TODO: make sure the handshake is done by querying the bio */
+		//		if (BIO_should_retry(tcp->socketBio))
+		//          return FALSE;
+#endif /* NO_IPV6 */
 
 		if (status <= 0)
 		{
@@ -582,8 +678,8 @@ BOOL tcp_connect(rdpTcp* tcp, const char* hostname, int port, int timeout)
 
 	SetEventFileDescriptor(tcp->event, tcp->sockfd);
 
-	tcp_get_ip_address(tcp);
-	tcp_get_mac_address(tcp);
+	freerdp_tcp_get_ip_address(tcp);
+	freerdp_tcp_get_mac_address(tcp);
 
 	option_value = 1;
 	option_len = sizeof(option_value);
@@ -612,7 +708,7 @@ BOOL tcp_connect(rdpTcp* tcp, const char* hostname, int port, int timeout)
 
 	if (!tcp->ipcSocket)
 	{
-		if (!tcp_set_keep_alive_mode(tcp))
+		if (!freerdp_tcp_set_keep_alive_mode(tcp))
 			return FALSE;
 	}
 
@@ -628,15 +724,20 @@ BOOL tcp_connect(rdpTcp* tcp, const char* hostname, int port, int timeout)
 	return TRUE;
 }
 
-BOOL tcp_disconnect(rdpTcp* tcp)
+BOOL freerdp_tcp_disconnect(rdpTcp* tcp)
 {
-	freerdp_tcp_disconnect(tcp->sockfd);
-	tcp->sockfd = -1;
+	if (tcp->sockfd != -1)
+	{
+		shutdown(tcp->sockfd, SHUT_RDWR);
+		close(tcp->sockfd);
+
+		tcp->sockfd = -1;
+	}
 
 	return TRUE;
 }
 
-BOOL tcp_set_blocking_mode(rdpTcp* tcp, BOOL blocking)
+BOOL freerdp_tcp_set_blocking_mode(rdpTcp* tcp, BOOL blocking)
 {
 #ifndef _WIN32
 	int flags;
@@ -683,7 +784,7 @@ BOOL tcp_set_blocking_mode(rdpTcp* tcp, BOOL blocking)
 	return TRUE;
 }
 
-BOOL tcp_set_keep_alive_mode(rdpTcp* tcp)
+BOOL freerdp_tcp_set_keep_alive_mode(rdpTcp* tcp)
 {
 #ifndef _WIN32
 	UINT32 option_value;
@@ -732,7 +833,7 @@ BOOL tcp_set_keep_alive_mode(rdpTcp* tcp)
 #endif
 #endif
 
-#ifdef __MACOSX__
+#if defined(__MACOSX__) || defined(__IOS__)
 	option_value = 1;
 	option_len = sizeof(option_value);
 	if (setsockopt(tcp->sockfd, SOL_SOCKET, SO_NOSIGPIPE, (void *) &option_value, option_len) < 0)
@@ -743,7 +844,7 @@ BOOL tcp_set_keep_alive_mode(rdpTcp* tcp)
 	return TRUE;
 }
 
-int tcp_attach(rdpTcp* tcp, int sockfd)
+int freerdp_tcp_attach(rdpTcp* tcp, int sockfd)
 {
 	tcp->sockfd = sockfd;
 	SetEventFileDescriptor(tcp->event, tcp->sockfd);
@@ -780,7 +881,7 @@ int tcp_attach(rdpTcp* tcp, int sockfd)
 	return 0;
 }
 
-HANDLE tcp_get_event_handle(rdpTcp* tcp)
+HANDLE freerdp_tcp_get_event_handle(rdpTcp* tcp)
 {
 	if (!tcp)
 		return NULL;
@@ -788,7 +889,7 @@ HANDLE tcp_get_event_handle(rdpTcp* tcp)
 	return tcp->event;
 }
 
-int tcp_wait_read(rdpTcp* tcp, DWORD dwMilliSeconds)
+int freerdp_tcp_wait_read(rdpTcp* tcp, DWORD dwMilliSeconds)
 {
 	int status;
 
@@ -826,7 +927,7 @@ int tcp_wait_read(rdpTcp* tcp, DWORD dwMilliSeconds)
 	return status;
 }
 
-int tcp_wait_write(rdpTcp* tcp, DWORD dwMilliSeconds)
+int freerdp_tcp_wait_write(rdpTcp* tcp, DWORD dwMilliSeconds)
 {
 	int status;
 
@@ -864,7 +965,7 @@ int tcp_wait_write(rdpTcp* tcp, DWORD dwMilliSeconds)
 	return status;
 }
 
-rdpTcp* tcp_new(rdpSettings* settings)
+rdpTcp* freerdp_tcp_new(rdpSettings* settings)
 {
 	rdpTcp* tcp;
 
@@ -897,7 +998,7 @@ out_free:
 	return NULL;
 }
 
-void tcp_free(rdpTcp* tcp)
+void freerdp_tcp_free(rdpTcp* tcp)
 {
 	if (!tcp)
 		return;

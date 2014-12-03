@@ -449,6 +449,8 @@ static BOOL rdp_client_establish_keys(rdpRdp* rdp)
 	if (status < 0)
 		goto end;
 
+	rdp->do_crypt_license = TRUE;
+
 	/* now calculate encrypt / decrypt and update keys */
 	if (!security_establish_keys(settings->ClientRandom, rdp))
 		goto end;
@@ -537,6 +539,8 @@ BOOL rdp_server_establish_keys(rdpRdp* rdp, wStream* s)
 		return FALSE;
 	}
 
+	rdp->do_crypt_license = (sec_flags & SEC_LICENSE_ENCRYPT_SC) != 0 ? TRUE : FALSE;
+
 	if (Stream_GetRemainingLength(s) < 4)
 		return FALSE;
 
@@ -573,9 +577,6 @@ BOOL rdp_server_establish_keys(rdpRdp* rdp, wStream* s)
 	}
 
 	rdp->do_crypt = TRUE;
-
-	if (rdp->settings->SaltedChecksum)
-		rdp->do_secure_checksum = TRUE;
 
 	if (rdp->settings->EncryptionMethods == ENCRYPTION_METHOD_FIPS)
 	{
@@ -1091,6 +1092,8 @@ BOOL rdp_server_accept_mcs_channel_join_request(rdpRdp* rdp, wStream* s)
 		mcs->userChannelJoined = TRUE;
 	else if (channelId == MCS_GLOBAL_CHANNEL_ID)
 		mcs->globalChannelJoined = TRUE;
+	else if (channelId == mcs->messageChannelId)
+		mcs->messageChannelJoined = TRUE;
 
 	for (i = 0; i < mcs->channelCount; i++)
 	{
@@ -1101,7 +1104,7 @@ BOOL rdp_server_accept_mcs_channel_join_request(rdpRdp* rdp, wStream* s)
 			allJoined = FALSE;
 	}
 
-	if ((mcs->userChannelJoined) && (mcs->globalChannelJoined) && allJoined)
+	if ((mcs->userChannelJoined) && (mcs->globalChannelJoined) && (mcs->messageChannelId == 0 || mcs->messageChannelJoined) && allJoined)
 	{
 		rdp_server_transition_to_state(rdp, CONNECTION_STATE_RDP_SECURITY_COMMENCEMENT);
 	}
@@ -1117,6 +1120,9 @@ BOOL rdp_server_accept_confirm_active(rdpRdp* rdp, wStream* s)
 	if (!rdp_recv_confirm_active(rdp, s))
 		return FALSE;
 
+	if (rdp->settings->SaltedChecksum)
+		rdp->do_secure_checksum = TRUE;
+
 	rdp_server_transition_to_state(rdp, CONNECTION_STATE_FINALIZATION);
 
 	if (!rdp_send_server_synchronize_pdu(rdp))
@@ -1130,6 +1136,14 @@ BOOL rdp_server_accept_confirm_active(rdpRdp* rdp, wStream* s)
 
 BOOL rdp_server_reactivate(rdpRdp* rdp)
 {
+	freerdp_peer* client = NULL;
+
+	if (rdp->context && rdp->context->peer)
+		client = rdp->context->peer;
+
+	if (client)
+		client->activated = FALSE;
+
 	if (!rdp_send_deactivate_all(rdp))
 		return FALSE;
 
@@ -1232,10 +1246,13 @@ int rdp_server_transition_to_state(rdpRdp* rdp, int state)
 						return -1;
 				}
 
-				IFCALLRET(client->Activate, client->activated, client);
+				if (rdp->state >= CONNECTION_STATE_ACTIVE)
+				{
+					IFCALLRET(client->Activate, client->activated, client);
 
-				if (!client->activated)
-					return -1;
+					if (!client->activated)
+						return -1;
+				}
 			}
 
 			break;

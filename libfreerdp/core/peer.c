@@ -22,12 +22,12 @@
 #endif
 
 #include <winpr/crt.h>
+#include <winpr/winsock.h>
 
 #include "info.h"
 #include "certificate.h"
 
 #include <freerdp/log.h>
-#include <freerdp/utils/tcp.h>
 
 #include "peer.h"
 
@@ -36,6 +36,161 @@
 #ifdef WITH_DEBUG_RDP
 extern const char* DATA_PDU_TYPE_STRINGS[80];
 #endif
+
+static HANDLE freerdp_peer_virtual_channel_open(freerdp_peer* client, const char* name, UINT32 flags)
+{
+	int length;
+	UINT32 index;
+	BOOL joined = FALSE;
+	rdpMcsChannel* mcsChannel = NULL;
+	rdpPeerChannel* peerChannel = NULL;
+	rdpMcs* mcs = client->context->rdp->mcs;
+
+	if (flags & WTS_CHANNEL_OPTION_DYNAMIC)
+		return NULL; /* not yet supported */
+
+	length = strlen(name);
+
+	if (length > 8)
+		return NULL; /* SVC maximum name length is 8 */
+
+	for (index = 0; index < mcs->channelCount; index++)
+	{
+		mcsChannel = &(mcs->channels[index]);
+
+		if (!mcsChannel->joined)
+			continue;
+
+		if (strncmp(name, mcsChannel->Name, length) == 0)
+		{
+			joined = TRUE;
+			break;
+		}
+	}
+
+	if (!joined)
+		return NULL; /* channel is not joined */
+
+	peerChannel = (rdpPeerChannel*) mcsChannel->handle;
+
+	if (peerChannel)
+	{
+		/* channel is already open */
+		return (HANDLE) peerChannel;
+	}
+
+	peerChannel = (rdpPeerChannel*) calloc(1, sizeof(rdpPeerChannel));
+
+	if (peerChannel)
+	{
+		peerChannel->index = index;
+		peerChannel->client = client;
+		peerChannel->channelFlags = flags;
+		peerChannel->channelId = mcsChannel->ChannelId;
+		peerChannel->mcsChannel = mcsChannel;
+		mcsChannel->handle = (void*) peerChannel;
+	}
+
+	return (HANDLE) peerChannel;
+}
+
+static BOOL freerdp_peer_virtual_channel_close(freerdp_peer* client, HANDLE hChannel)
+{
+	rdpMcsChannel* mcsChannel = NULL;
+	rdpPeerChannel* peerChannel = NULL;
+
+	if (!hChannel)
+		return FALSE;
+
+	peerChannel = (rdpPeerChannel*) hChannel;
+	mcsChannel = peerChannel->mcsChannel;
+
+	mcsChannel->handle = NULL;
+	free(peerChannel);
+
+	return TRUE;
+}
+
+int freerdp_peer_virtual_channel_read(freerdp_peer* client, HANDLE hChannel, BYTE* buffer, UINT32 length)
+{
+	return 0; /* this needs to be implemented by the server application */
+}
+
+static int freerdp_peer_virtual_channel_write(freerdp_peer* client, HANDLE hChannel, BYTE* buffer, UINT32 length)
+{
+	wStream* s;
+	UINT32 flags;
+	UINT32 chunkSize;
+	UINT32 maxChunkSize;
+	UINT32 totalLength;
+	rdpRdp* rdp = client->context->rdp;
+	rdpPeerChannel* peerChannel = (rdpPeerChannel*) hChannel;
+	rdpMcsChannel* mcsChannel = peerChannel->mcsChannel;
+
+	if (!hChannel)
+		return -1;
+
+	if (peerChannel->channelFlags & WTS_CHANNEL_OPTION_DYNAMIC)
+		return -1; /* not yet supported */
+
+	maxChunkSize = rdp->settings->VirtualChannelChunkSize;
+
+	totalLength = length;
+	flags = CHANNEL_FLAG_FIRST;
+
+	while (length > 0)
+	{
+		s = rdp_send_stream_init(rdp);
+
+		if (length > maxChunkSize)
+		{
+			chunkSize = rdp->settings->VirtualChannelChunkSize;
+		}
+		else
+		{
+			chunkSize = length;
+			flags |= CHANNEL_FLAG_LAST;
+		}
+
+		if (mcsChannel->options & CHANNEL_OPTION_SHOW_PROTOCOL)
+			flags |= CHANNEL_FLAG_SHOW_PROTOCOL;
+
+		Stream_Write_UINT32(s, totalLength);
+		Stream_Write_UINT32(s, flags);
+		Stream_EnsureRemainingCapacity(s, chunkSize);
+		Stream_Write(s, buffer, chunkSize);
+
+		rdp_send(rdp, s, peerChannel->channelId);
+
+		buffer += chunkSize;
+		length -= chunkSize;
+		flags = 0;
+	}
+
+	return 1;
+}
+
+void* freerdp_peer_virtual_channel_get_data(freerdp_peer* client, HANDLE hChannel)
+{
+	rdpPeerChannel* peerChannel = (rdpPeerChannel*) hChannel;
+
+	if (!hChannel)
+		return NULL;
+
+	return peerChannel->extra;
+}
+
+int freerdp_peer_virtual_channel_set_data(freerdp_peer* client, HANDLE hChannel, void* data)
+{
+	rdpPeerChannel* peerChannel = (rdpPeerChannel*) hChannel;
+
+	if (!hChannel)
+		return -1;
+
+	peerChannel->extra = data;
+
+	return 1;
+}
 
 static BOOL freerdp_peer_initialize(freerdp_peer* client)
 {
@@ -205,12 +360,7 @@ static int peer_recv_tpkt_pdu(freerdp_peer* client, wStream* s)
 		}
 	}
 
-	if (channelId != MCS_GLOBAL_CHANNEL_ID)
-	{
-		if (!freerdp_channel_peer_process(client, s, channelId))
-			return -1;
-	}
-	else
+	if (channelId == MCS_GLOBAL_CHANNEL_ID)
 	{
 		if (!rdp_read_share_control_header(s, &pduLength, &pduType, &pduSource))
 			return -1;
@@ -229,10 +379,24 @@ static int peer_recv_tpkt_pdu(freerdp_peer* client, wStream* s)
 					return -1;
 				break;
 
+			case PDU_TYPE_FLOW_RESPONSE:
+			case PDU_TYPE_FLOW_STOP:
+			case PDU_TYPE_FLOW_TEST:
+				break;
+
 			default:
 				WLog_ERR(TAG,  "Client sent pduType %d", pduType);
 				return -1;
 		}
+	}
+	else if (rdp->mcs->messageChannelId && channelId == rdp->mcs->messageChannelId)
+	{
+		return rdp_recv_message_channel_pdu(rdp, s);
+	}
+	else
+	{
+		if (!freerdp_channel_peer_process(client, s, channelId))
+			return -1;
 	}
 
 	return 0;
@@ -427,8 +591,7 @@ static BOOL freerdp_peer_is_write_blocked(freerdp_peer* peer)
 
 static int freerdp_peer_drain_output_buffer(freerdp_peer* peer)
 {
-
-	rdpTransport *transport = peer->context->rdp->transport;
+	rdpTransport* transport = peer->context->rdp->transport;
 
 	return tranport_drain_output_buffer(transport);
 }
@@ -448,17 +611,21 @@ void freerdp_peer_context_new(freerdp_peer* client)
 	client->input = rdp->input;
 	client->update = rdp->update;
 	client->settings = rdp->settings;
+	client->autodetect = rdp->autodetect;
 
 	client->context->rdp = rdp;
 	client->context->peer = client;
 	client->context->input = client->input;
 	client->context->update = client->update;
 	client->context->settings = client->settings;
+	client->context->autodetect = client->autodetect;
 
 	client->update->context = client->context;
 	client->input->context = client->context;
+	client->autodetect->context = client->context;
 
 	update_register_server_callbacks(client->update);
+	autodetect_register_server_callbacks(client->autodetect);
 
 	transport_attach(rdp->transport, client->sockfd);
 
@@ -481,11 +648,19 @@ void freerdp_peer_context_free(freerdp_peer* client)
 
 freerdp_peer* freerdp_peer_new(int sockfd)
 {
+	UINT32 option_value;
+	socklen_t option_len;
 	freerdp_peer* client;
 
 	client = (freerdp_peer*) calloc(1, sizeof(freerdp_peer));
 
-	freerdp_tcp_set_no_delay(sockfd, TRUE);
+	if (!client)
+		return NULL;
+
+	option_value = TRUE;
+	option_len = sizeof(option_value);
+
+	setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, (void*) &option_value, option_len);
 
 	if (client)
 	{
@@ -500,6 +675,12 @@ freerdp_peer* freerdp_peer_new(int sockfd)
 		client->SendChannelData = freerdp_peer_send_channel_data;
 		client->IsWriteBlocked = freerdp_peer_is_write_blocked;
 		client->DrainOutputBuffer = freerdp_peer_drain_output_buffer;
+		client->VirtualChannelOpen = freerdp_peer_virtual_channel_open;
+		client->VirtualChannelClose = freerdp_peer_virtual_channel_close;
+		client->VirtualChannelWrite = freerdp_peer_virtual_channel_write;
+		client->VirtualChannelRead = NULL; /* must be defined by server application */
+		client->VirtualChannelGetData = freerdp_peer_virtual_channel_get_data;
+		client->VirtualChannelSetData = freerdp_peer_virtual_channel_set_data;
 	}
 
 	return client;
