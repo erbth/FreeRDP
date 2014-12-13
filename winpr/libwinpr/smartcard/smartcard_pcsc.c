@@ -2322,7 +2322,7 @@ WINSCARDAPI LONG WINAPI PCSC_SCardGetAttrib(SCARDHANDLE hCard, DWORD dwAttrId, L
 	 * buffer size is larger than PCSC_MAX_BUFFER_SIZE (264)
 	 */
 
-	if (*pcbAttrLen > PCSC_MAX_BUFFER_SIZE)
+	if ((*pcbAttrLen > PCSC_MAX_BUFFER_SIZE) && !pcbAttrLenAlloc)
 		*pcbAttrLen = PCSC_MAX_BUFFER_SIZE;
 
 	hContext = PCSC_GetCardContextFromHandle(hCard);
