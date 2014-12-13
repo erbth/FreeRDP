@@ -30,6 +30,7 @@
 #include <winpr/synch.h>
 #include <winpr/print.h>
 #include <winpr/stream.h>
+#include <winpr/winsock.h>
 
 #include <freerdp/log.h>
 #include <freerdp/error.h>
@@ -125,14 +126,20 @@ long transport_bio_tsg_callback(BIO* bio, int mode, const char* argp, int argi, 
 static int transport_bio_tsg_write(BIO* bio, const char* buf, int num)
 {
 	int status;
-	rdpTsg* tsg;
-	tsg = (rdpTsg*) bio->ptr;
+	rdpTsg* tsg = (rdpTsg*) bio->ptr;
+
 	BIO_clear_flags(bio, BIO_FLAGS_WRITE);
+
 	status = tsg_write(tsg, (BYTE*) buf, num);
 
 	if (status < 0)
 	{
 		BIO_clear_flags(bio, BIO_FLAGS_SHOULD_RETRY);
+	}
+	else if (status == 0)
+	{
+		BIO_set_flags(bio, BIO_FLAGS_SHOULD_RETRY);
+		WSASetLastError(WSAEWOULDBLOCK);
 	}
 	else
 	{
@@ -145,10 +152,11 @@ static int transport_bio_tsg_write(BIO* bio, const char* buf, int num)
 static int transport_bio_tsg_read(BIO* bio, char* buf, int size)
 {
 	int status;
-	rdpTsg* tsg;
-	tsg = (rdpTsg*) bio->ptr;
+	rdpTsg* tsg = (rdpTsg*) bio->ptr;
+
 	BIO_clear_flags(bio, BIO_FLAGS_READ);
-	status = tsg_read(bio->ptr, (BYTE*) buf, size);
+
+	status = tsg_read(tsg, (BYTE*) buf, size);
 
 	if (status < 0)
 	{
@@ -157,6 +165,7 @@ static int transport_bio_tsg_read(BIO* bio, char* buf, int size)
 	else if (status == 0)
 	{
 		BIO_set_flags(bio, BIO_FLAGS_SHOULD_RETRY);
+		WSASetLastError(WSAEWOULDBLOCK);
 	}
 	else
 	{
@@ -370,6 +379,7 @@ BOOL transport_tsg_connect(rdpTransport* transport, const char* hostname, UINT16
 	rdpSettings* settings = transport->settings;
 	instance = (freerdp*) transport->settings->instance;
 	context = instance->context;
+
 	tsg = tsg_new(transport);
 
 	if (!tsg)
@@ -1268,9 +1278,21 @@ void transport_free(rdpTransport* transport)
 
 	transport->TcpIn = NULL;
 	transport->TcpOut = NULL;
-	tsg_free(transport->tsg);
-	transport->tsg = NULL;
+
+	if (transport->tsg)
+	{
+		tsg_free(transport->tsg);
+		transport->tsg = NULL;
+	}
+
+	if (transport->TsgTls)
+	{
+		tls_free(transport->TsgTls);
+		transport->TsgTls = NULL;
+	}
+
 	DeleteCriticalSection(&(transport->ReadLock));
 	DeleteCriticalSection(&(transport->WriteLock));
+
 	free(transport);
 }
