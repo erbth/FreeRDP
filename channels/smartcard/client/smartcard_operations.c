@@ -966,6 +966,7 @@ static UINT32 smartcard_GetAttrib_Call(SMARTCARD_DEVICE* smartcard, SMARTCARD_OP
 {
 	LONG status;
 	DWORD cbAttrLen;
+	BOOL cbAttrLenAlloc = FALSE;
 	GetAttrib_Return ret;
 	IRP* irp = operation->irp;
 	ret.pbAttr = NULL;
@@ -973,11 +974,18 @@ static UINT32 smartcard_GetAttrib_Call(SMARTCARD_DEVICE* smartcard, SMARTCARD_OP
 	if (call->fpbAttrIsNULL)
 		call->cbAttrLen = 0;
 
-	if (call->cbAttrLen)
+	if (call->cbAttrLen == SCARD_AUTOALLOCATE)
+		cbAttrLenAlloc = TRUE;
+	else
 		ret.pbAttr = (BYTE*) malloc(call->cbAttrLen);
 
 	cbAttrLen = call->cbAttrLen;
-	status = ret.ReturnCode = SCardGetAttrib(operation->hCard, call->dwAttrId, ret.pbAttr, &cbAttrLen);
+	
+	if (cbAttrLenAlloc)
+		status = ret.ReturnCode = SCardGetAttrib(operation->hCard, call->dwAttrId, (LPBYTE) &ret.pbAttr, &cbAttrLen);
+	else
+		status = ret.ReturnCode = SCardGetAttrib(operation->hCard, call->dwAttrId, ret.pbAttr, &cbAttrLen);
+
 	ret.cbAttrLen = cbAttrLen;
 	smartcard_trace_get_attrib_return(smartcard, &ret, call->dwAttrId);
 
@@ -995,7 +1003,11 @@ static UINT32 smartcard_GetAttrib_Call(SMARTCARD_DEVICE* smartcard, SMARTCARD_OP
 	if (status != SCARD_S_SUCCESS)
 		return status;
 
-	free(ret.pbAttr);
+	if (cbAttrLenAlloc)
+		SCardFreeMemory(operation->hContext, ret.pbAttr);
+	else
+		free(ret.pbAttr);
+
 	return ret.ReturnCode;
 }
 

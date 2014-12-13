@@ -2051,32 +2051,6 @@ int freerdp_client_load_addins(rdpChannels* channels, rdpSettings* settings)
 		}
 	}
 
-	if (settings->RedirectSmartCards)
-	{
-		RDPDR_SMARTCARD* smartcard;
-
-		smartcard = (RDPDR_SMARTCARD*) calloc(1, sizeof(RDPDR_SMARTCARD));
-
-		if (!smartcard)
-			return -1;
-
-		smartcard->Type = RDPDR_DTYP_SMARTCARD;
-		freerdp_device_collection_add(settings, (RDPDR_DEVICE*) smartcard);
-	}
-
-	if (settings->RedirectPrinters)
-	{
-		RDPDR_PRINTER* printer;
-
-		printer = (RDPDR_PRINTER*) calloc(1, sizeof(RDPDR_PRINTER));
-
-		if (!printer)
-			return -1;
-
-		printer->Type = RDPDR_DTYP_PRINT;
-		freerdp_device_collection_add(settings, (RDPDR_DEVICE*) printer);
-	}
-
 	if (settings->RedirectClipboard)
 	{
 		if (!freerdp_static_channel_collection_find(settings, "cliprdr"))
@@ -2089,11 +2063,24 @@ int freerdp_client_load_addins(rdpChannels* channels, rdpSettings* settings)
 		}
 	}
 
+	if (settings->LyncRdpMode)
+	{
+		settings->EncomspVirtualChannel = TRUE;
+		settings->RemdeskVirtualChannel = TRUE;
+		settings->CompressionEnabled = FALSE;
+	}
+
 	if (settings->RemoteAssistanceMode)
 	{
-		freerdp_client_load_static_channel_addin(channels, settings, "encomsp", settings);
-		freerdp_client_load_static_channel_addin(channels, settings, "remdesk", settings);
+		settings->EncomspVirtualChannel = TRUE;
+		settings->RemdeskVirtualChannel = TRUE;
 	}
+
+	if (settings->EncomspVirtualChannel)
+		freerdp_client_load_static_channel_addin(channels, settings, "encomsp", settings);
+
+	if (settings->RemdeskVirtualChannel)
+		freerdp_client_load_static_channel_addin(channels, settings, "remdesk", settings);
 
 	for (index = 0; index < settings->StaticChannelCount; index++)
 	{

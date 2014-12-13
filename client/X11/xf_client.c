@@ -132,12 +132,6 @@ static void xf_draw_screen_scaled(xfContext* xfc, int x, int y, int w, int h)
 		return;
 	}
 
-	if (!w || !h)
-	{
-		WLog_ERR(TAG,  "invalid width and/or height specified");
-		return;
-	}
-
 	xScalingFactor = xfc->width / (double)xfc->scaledWidth;
 	yScalingFactor = xfc->height / (double)xfc->scaledHeight;
 
@@ -165,7 +159,7 @@ static void xf_draw_screen_scaled(xfContext* xfc, int x, int y, int w, int h)
 		XDestroyRegion(reg2);
 	}
 
-	picFormat = XRenderFindStandardFormat(xfc->display, PictStandardRGB24);
+	picFormat = XRenderFindVisualFormat(xfc->display, xfc->visual);
 
 	pa.subwindow_mode = IncludeInferiors;
 	primaryPicture = XRenderCreatePicture(xfc->display, xfc->primary, picFormat, CPSubwindowMode, &pa);
@@ -211,6 +205,12 @@ BOOL xf_picture_transform_required(xfContext* xfc)
 
 void xf_draw_screen(xfContext* xfc, int x, int y, int w, int h)
 {
+	if (w == 0 || h == 0)
+	{
+		WLog_WARN(TAG,  "invalid width and/or height specified: w=%d h=%d", w, h);
+		return;
+	}
+
 #ifdef WITH_XRENDER
 	if (xf_picture_transform_required(xfc)) {
 		xf_draw_screen_scaled(xfc, x, y, w, h);
@@ -1711,7 +1711,6 @@ void* xf_thread(void *param)
 	if (!exit_code)
 		exit_code = freerdp_error_info(instance);
 
-	freerdp_channels_free(channels);
 	freerdp_disconnect(instance);
 	gdi_free(instance);
 
@@ -1890,6 +1889,12 @@ static void xfreerdp_client_free(freerdp* instance, rdpContext* context)
 
 		if (xfc->display)
 			XCloseDisplay(xfc->display);
+
+		if (context->channels)
+		{
+			freerdp_channels_free(context->channels);
+			context->channels = NULL;
+		}
 	}
 }
 

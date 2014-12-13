@@ -1478,24 +1478,21 @@ WINSCARDAPI LONG WINAPI PCSC_SCardGetStatusChange_Internal(SCARDCONTEXT hContext
 
 		/* pcsc-lite puts an event count in the higher bits of dwEventState */
 		states[j].dwEventState &= 0xFFFF;
-		dwEventState = states[j].dwEventState & ~SCARD_STATE_CHANGED;
 
-		if (dwEventState != rgReaderStates[i].dwCurrentState)
+		dwEventState = states[j].dwEventState;
+
+		if (dwEventState & SCARD_STATE_CHANGED)
 		{
-			rgReaderStates[i].dwEventState = states[j].dwEventState;
-
-			if (dwEventState & SCARD_STATE_PRESENT)
+			/*if (dwEventState & SCARD_STATE_PRESENT)
 			{
 				if (!(dwEventState & SCARD_STATE_EXCLUSIVE))
-					rgReaderStates[i].dwEventState |= SCARD_STATE_INUSE;
-			}
+					dwEventState |= SCARD_STATE_INUSE;
+			}*/
 
 			stateChanged = TRUE;
 		}
-		else
-		{
-			rgReaderStates[i].dwEventState = dwEventState;
-		}
+
+		rgReaderStates[i].dwEventState = dwEventState;
 
 		if (rgReaderStates[i].dwCurrentState & SCARD_STATE_IGNORE)
 			rgReaderStates[i].dwEventState = SCARD_STATE_IGNORE;
@@ -2325,7 +2322,7 @@ WINSCARDAPI LONG WINAPI PCSC_SCardGetAttrib(SCARDHANDLE hCard, DWORD dwAttrId, L
 	 * buffer size is larger than PCSC_MAX_BUFFER_SIZE (264)
 	 */
 
-	if (*pcbAttrLen > PCSC_MAX_BUFFER_SIZE)
+	if ((*pcbAttrLen > PCSC_MAX_BUFFER_SIZE) && !pcbAttrLenAlloc)
 		*pcbAttrLen = PCSC_MAX_BUFFER_SIZE;
 
 	hContext = PCSC_GetCardContextFromHandle(hCard);
