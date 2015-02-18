@@ -51,6 +51,7 @@ void primitives_init(void)
 	primitives_init_colors(pPrimitives);
 	primitives_init_YCoCg(pPrimitives);
 	primitives_init_YUV(pPrimitives);
+	primitives_init_NV12(pPrimitives);
 	primitives_init_16to32bpp(pPrimitives);
 }
 
@@ -80,6 +81,7 @@ void primitives_deinit(void)
 	primitives_deinit_colors(pPrimitives);
 	primitives_deinit_YCoCg(pPrimitives);
 	primitives_deinit_YUV(pPrimitives);
+	primitives_deinit_NV12(pPrimitives);
 	primitives_deinit_16to32bpp(pPrimitives);
 
 	free((void*) pPrimitives);

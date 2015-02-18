@@ -41,6 +41,8 @@ struct xf_gfx_surface
 	UINT32 outputOriginX;
 	UINT32 outputOriginY;
 	REGION16 invalidRegion;
+
+	void *hwaccelSurface;
 };
 typedef struct xf_gfx_surface xfGfxSurface;
 

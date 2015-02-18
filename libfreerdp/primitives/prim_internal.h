@@ -65,6 +65,9 @@ extern void primitives_deinit_YCoCg(primitives_t *prims);
 extern void primitives_init_YUV(primitives_t *prims);
 extern void primitives_deinit_YUV(primitives_t *prims);
 
+extern void primitives_init_NV12(primitives_t *prims);
+extern void primitives_deinit_NV12(primitives_t *prims);
+
 extern void primitives_init_16to32bpp(primitives_t *prims);
 extern void primitives_deinit_16to32bpp(primitives_t *prims);
 

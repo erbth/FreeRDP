@@ -101,6 +101,7 @@ libfreerdp/codec/test/TestOpenH264ASM
 
 # Other
 *~
+*.swp
 *.dir
 Release
 Win32

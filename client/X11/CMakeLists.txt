@@ -197,6 +197,12 @@ if(WITH_XFIXES)
 	set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} ${XFIXES_LIBRARIES})
 endif()
 
+if (WITH_LIBVA)
+	add_definitions (-DWITH_LIBVA)
+	include_directories (${LIBVA_INCLUDE_DIRS})
+	set (${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} ${LIBVA_LIBRARIES})
+endif ()
+
 include_directories(${CMAKE_SOURCE_DIR}/resources)
 
 set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} freerdp freerdp-client)

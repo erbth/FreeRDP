@@ -51,6 +51,7 @@ struct _H264_CONTEXT
 	BYTE* pYUVData[3];
 
 	void* pSystemData;
+	void* hwaccel;
 	H264_CONTEXT_SUBSYSTEM* subsystem;
 };
 
