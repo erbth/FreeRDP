@@ -144,6 +144,8 @@ int vaapiInit (struct vaapiContext *vactx, Display *display, int width, int heig
 	VAEntrypoint entrypoints[20];
 	int numEntrypoints, vldEntrypoint;
 
+	VAImageFormat *imageFormats;
+
 	VAStatus vaStatus;
 	int majorVer, minorVer;
 
@@ -227,6 +229,31 @@ int vaapiInit (struct vaapiContext *vactx, Display *display, int width, int heig
 					&vactx->vaContext);
 	VAAPI_ERROR ("couldn't create vaapi context");
 
+	/* we also need an va imaga */
+	imageFormats = malloc (vaMaxNumImageFormats (vactx->vaDisplay) * sizeof (VAImageFormat));
+	if (!imageFormats)
+		return -1;
+	
+	vaStatus = vaQueryImageFormats (vactx->vaDisplay, imageFormats, &numEntrypoints);
+	VAAPI_ERROR ("couldn't query image formats ...");
+
+	for (i = 0; i < numEntrypoints; i ++)
+	{
+		if (imageFormats[i].fourcc == VA_FOURCC_NV12)
+			break;
+	}
+
+	if (i == numEntrypoints)
+	{
+		printf ("seems like vaapi doesn't support NV12 as image format. admin: ? \n");
+		return -1;
+	}
+
+	vaStatus = vaCreateImage (vactx->vaDisplay, &imageFormats[i], width, height, &vactx->vaImage);
+	VAAPI_ERROR ("couldn't create VAImage ...\n")
+
+	free (imageFormats);
+
 	return 0;
 }
 
@@ -244,6 +271,9 @@ void vaapiDestroyContext (struct vaapiContext **pVactx)
 
 	if (vactx->vaDisplay)
 	{
+		if (vactx->vaImage.image_id)
+			vaDestroyImage (vactx->vaDisplay, vactx->vaImage.image_id);
+
 		if (vactx->surfaces)
 		{
 			vaDestroySurfaces (vactx->vaDisplay, vactx->baseSurfaceID, vactx->numSurfaces);

@@ -1,8 +1,9 @@
-/** function for converting YUV420p data to the RGB format (but without any special upconverting)
+/** function for converting NV12 data to the RGB format (but without any special upsampling)
  * It's completely written in nasm-x86-assembly for intel processors supporting SSSE3 and higher.
+ * Well, it was ... No there are just intrinsics left ...
+ *
  * The target dstStep (6th parameter) must be a multiple of 16.
- * srcStep[0] must be (target dstStep) / 4 or bigger and srcStep[1] the next multiple of four
- * of the half of srcStep[0] or bigger
+ * srcSteps must be (target dstStep) / 4 or bigger
  */
 
 #include <stdio.h>

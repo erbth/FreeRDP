@@ -326,10 +326,6 @@ static int libavcodec_decompress(H264_CONTEXT* h264, BYTE* pSrcData, UINT32 SrcS
 				vaStatus = vaUnmapBuffer (vactx->vaDisplay, vaImage->buf);
 				if (vaStatus != VA_STATUS_SUCCESS)
 					return -1;
-
-				vaStatus = vaDestroyImage (vactx->vaDisplay, vaImage->image_id);
-				if (vaStatus != VA_STATUS_SUCCESS)
-					return -1;
 			}
 
 
@@ -351,7 +347,7 @@ static int libavcodec_decompress(H264_CONTEXT* h264, BYTE* pSrcData, UINT32 SrcS
 				return -1;
 			}
 
-			vaStatus = vaDeriveImage (vactx->vaDisplay, vaSurface, vaImage);
+			vaStatus = vaGetImage (vactx->vaDisplay, vaSurface, 0, 0, sys->videoFrame->width, sys->videoFrame->height, vaImage->image_id);
 			if (vaStatus != VA_STATUS_SUCCESS)
 			{
 				WLog_ERR (TAG, "couldn't derive an VAImage from our surface ...\n");
@@ -615,8 +611,6 @@ int h264_decompress(H264_CONTEXT* h264, BYTE* pSrcData, UINT32 SrcSize,
 		WLog_INFO(TAG, "regionRect: x: %d y: %d width: %d height: %d",
 		       rect->left, rect->top, width, height);
 #endif
-		printf ("numregionRects: %d\n", numRegionRects);
-
 		if (h264->hwaccel)
 		{
 			pDstPoint = pDstData + rect->top * nDstStep + rect->left * 4;
