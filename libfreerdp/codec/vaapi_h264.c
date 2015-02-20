@@ -18,32 +18,6 @@
 #define VAAPI_ERROR(x) if (vaStatus != VA_STATUS_SUCCESS) { fprintf (stderr, "VAAPI ERROR: %s\n", x); return -1; }
 
 
-void vaapiUnrefSurface (struct hwaccelSurface *hwSurface)
-{
-	if (-- hwSurface->refCount < 0)
-		hwSurface->refCount = 0;
-}
-
-struct hwaccelSurface *vaapiRefSurface (struct vaapiContext *vactx, VASurfaceID surface)
-{
-	int i;
-	struct hwaccelSurface *hwSurface;
-
-	for (i = 0; i < vactx->numSurfaces; i++)
-	{
-		hwSurface = &vactx->surfaces[i];
-
-		if (hwSurface->vaSurface == surface)
-		{
-			hwSurface->refCount ++;
-			return hwSurface;
-		}
-	}
-
-	return NULL;
-}
-
-
 void vaapiReleaseBuffer (void * opaque, uint8_t *data)
 {
 	//printf ("\tvaapiReleaseBuffer\n");
@@ -52,7 +26,6 @@ void vaapiReleaseBuffer (void * opaque, uint8_t *data)
 int vaapiGetBuffer (struct AVCodecContext *s, AVFrame *frame, int flags)
 {
 	struct vaapiContext *vactx = s->opaque;
-	int i;
 
 	assert (vactx);
 	assert (frame->format == AV_PIX_FMT_VAAPI_VLD);
@@ -70,31 +43,17 @@ int vaapiGetBuffer (struct AVCodecContext *s, AVFrame *frame, int flags)
 		}
 		/* TODO: check wether resolution has changed */
 
-		/* find a free surface (refCount == 0) */
-		i = vactx->currentSurface;
+		if (++ vactx->currentSurface >= vactx->numSurfaces)
+			vactx->currentSurface = 0;
 
-		while (1)
-		{
-			if (++ i >= vactx->numSurfaces)
-				i = 0;
-
-			if (i == vactx->currentSurface)
-				return AVERROR (ENOMEM);
-
-			if (vactx->surfaces[i].refCount == 0)
-				break;
-		}
-
-		vactx->currentSurface = i;
-
-		/* create buffer from it ... */
-		frame->buf[0] = av_buffer_create ((uint8_t*) &vactx->surfaces[i], sizeof (VASurfaceID),
+		/* create buffer from a surface ... */
+		frame->buf[0] = av_buffer_create ((uint8_t*) &vactx->surfaces[vactx->currentSurface], sizeof (VASurfaceID),
 							&vaapiReleaseBuffer, vactx, AV_BUFFER_FLAG_READONLY);
 		if (!frame->buf[0])
 			return AVERROR (ENOMEM);
 		
 		/* ... and pass its ID. */
-		frame->data[3] = (uint8_t*) (0L | vactx->surfaces[i].vaSurface);
+		frame->data[3] = (uint8_t*) (0L | vactx->surfaces[vactx->currentSurface]);
 
 		//printf ("\t\tbuffer allocated (surface %d).\n", vactx->currentSurface);
 	}
@@ -196,40 +155,27 @@ int vaapiInit (struct vaapiContext *vactx, Display *display, int width, int heig
 	VAAPI_ERROR ("couldn't create vaapi config ...");
 
 	/* ... some surfaces ... */
-	vactx->baseSurfaceID = malloc (numSurfaces * sizeof (VASurfaceID));
-	vactx->surfaces = malloc (numSurfaces * sizeof (struct hwaccelSurface));
-	if (!vactx->baseSurfaceID || !vactx->surfaces)
+	vactx->surfaces = malloc (numSurfaces * sizeof (VASurfaceID));
+	if (!vactx->surfaces)
 	{
 		return -1;
 	}
 
 	vactx->numSurfaces = numSurfaces;
 
-	vaStatus = vaCreateSurfaces (vactx->vaDisplay, VA_RT_FORMAT_YUV420, width, height, vactx->baseSurfaceID, numSurfaces, NULL, 0);
+	vaStatus = vaCreateSurfaces (vactx->vaDisplay, VA_RT_FORMAT_YUV420, width, height, vactx->surfaces, numSurfaces, NULL, 0);
 	VAAPI_ERROR ("couldn't create vaapi surfaces");
-
-	/* ... and fill them into some kind of reference count list ... */
-	for (i = 0; i < numSurfaces; i ++)
-	{
-		vactx->surfaces[i].vaSurface = vactx->baseSurfaceID[i];
-		vactx->surfaces[i].refCount = 0;
-
-		vactx->surfaces[i].clipRects = NULL;
-		vactx->surfaces[i].numClipRects = 0;
-
-		vactx->surfaces[i].vactx = vactx;
-	}
 
 	vactx->width = width;
 	vactx->height = height;
 
 	/* ... and finally a virtual hw decoding pipeline. */
 	vaStatus = vaCreateContext (vactx->vaDisplay, vactx->vaConfig,
-					width, height, VA_PROGRESSIVE, (VASurfaceID *) vactx->baseSurfaceID, numSurfaces,
+					width, height, VA_PROGRESSIVE, (VASurfaceID *) vactx->surfaces, numSurfaces,
 					&vactx->vaContext);
 	VAAPI_ERROR ("couldn't create vaapi context");
 
-	/* we also need an va imaga */
+	/* we also need an va image */
 	imageFormats = malloc (vaMaxNumImageFormats (vactx->vaDisplay) * sizeof (VAImageFormat));
 	if (!imageFormats)
 		return -1;
@@ -276,18 +222,7 @@ void vaapiDestroyContext (struct vaapiContext **pVactx)
 
 		if (vactx->surfaces)
 		{
-			vaDestroySurfaces (vactx->vaDisplay, vactx->baseSurfaceID, vactx->numSurfaces);
-			free (vactx->baseSurfaceID);
-
-			while (vactx->numSurfaces --)
-			{
-				if (vactx->surfaces[vactx->numSurfaces].clipRects)
-				{
-					free (vactx->surfaces[vactx->numSurfaces].clipRects);
-					vactx->surfaces[vactx->numSurfaces].numClipRects = 0;
-				}
-			}
-
+			vaDestroySurfaces (vactx->vaDisplay, vactx->surfaces, vactx->numSurfaces);
 			free (vactx->surfaces);
 		}
 		

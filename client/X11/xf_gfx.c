@@ -64,50 +64,22 @@ int xf_ResetGraphics(RdpgfxClientContext* context, RDPGFX_RESET_GRAPHICS_PDU* re
 
 int xf_OutputUpdate(xfContext* xfc, xfGfxSurface* surface)
 {
-	// int i;
 	UINT16 width, height;
 	UINT32 surfaceX, surfaceY;
-	// RECTANGLE_16 surfaceRect;
+	RECTANGLE_16 surfaceRect;
 	const RECTANGLE_16* extents;
-
-	/* const RECTANGLE_16 *surfaceRects;
-	int numSurfaceRects;
-	RECTANGLE_16 *rect; */
 
 	surfaceX = surface->outputOriginX;
 	surfaceY = surface->outputOriginY;
 
-	/* surfaceRect.left = surfaceX;
+	surfaceRect.left = surfaceX;
 	surfaceRect.top = surfaceY;
 	surfaceRect.right = surfaceX + surface->width;
-	surfaceRect.bottom = surfaceY + surface->height; */
+	surfaceRect.bottom = surfaceY + surface->height;
 
 	XSetClipMask(xfc->display, xfc->gc, None);
 	XSetFunction(xfc->display, xfc->gc, GXcopy);
 	XSetFillStyle(xfc->display, xfc->gc, FillSolid);
-
-	if (surface->hwaccelSurface)
-	{
-#if 0
-		struct hwaccelSurface *hwSurface = surface->hwaccelSurface;
-		struct vaapiContext *vactx = hwSurface->vactx;
-		
-		VAStatus vaStatus;
-
-		vaStatus = vaSyncSurface (vactx->vaDisplay, hwSurface->vaSurface);
-		if (vaStatus != VA_STATUS_SUCCESS)
-			return -1;
-
-		vaStatus = vaPutSurface (vactx->vaDisplay, hwSurface->vaSurface, xfc->drawable,
-			0, 0, surface->width, surface->height, surfaceX, surfaceY, surface->width, surface->height,
-			hwSurface->clipRects, hwSurface->numClipRects, 0);
-
-		if (vaStatus != VA_STATUS_SUCCESS)
-			return -1;
-
-		vaapiUnrefSurface (hwSurface);
-#endif
-	}
 
 	if (!region16_is_empty(&surface->invalidRegion))
 	{
@@ -481,56 +453,9 @@ int xf_SurfaceCommand_H264(xfContext* xfc, RdpgfxClientContext* context, RDPGFX_
 		return -1;
 	}
 
-	if (0)
+	for (i = 0; i < meta->numRegionRects; i++)
 	{
-#if 0
-		struct hwaccelSurface *hwSurface;
-		int temp1;
-
-		/* ... just wanted to say I've got it from here: http://stackoverflow.com/questions/3378560/how-to-disable-gcc-warnings-for-a-few-lines-of-code */
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
-#endif
-		hwSurface = vaapiRefSurface (vactx, (VASurfaceID) h264->pYUVData[0]);
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
-
-		surface->hwaccelSurface = hwSurface;
-
-		temp1 = meta->numRegionRects;
-		if (hwSurface->numClipRects < temp1)
-		{
-			hwSurface->numClipRects = temp1;
-			
-			free (hwSurface->clipRects);
-
-			hwSurface->clipRects = malloc (temp1 * sizeof (VARectangle));
-			if (!hwSurface->clipRects)
-				return -1;
-		}
-
-		hwSurface->numClipRects = temp1;
-
-		for (i = 0; i < temp1; i ++)
-		{
-			VARectangle *dst = &hwSurface->clipRects[i];
-			RDPGFX_RECT16 *src = &meta->regionRects[i];
-
-			dst->x = src->left;
-			dst->y = src->top;
-			dst->width = src->right - src->left;
-			dst->height = src->bottom - src->top;
-		}
-#endif
-	}
-	else
-	{
-		for (i = 0; i < meta->numRegionRects; i++)
-		{
-			region16_union_rect(&surface->invalidRegion, &surface->invalidRegion, (RECTANGLE_16*) &(meta->regionRects[i]));
-		}
+		region16_union_rect(&surface->invalidRegion, &surface->invalidRegion, (RECTANGLE_16*) &(meta->regionRects[i]));
 	}
 
 	if (!xfc->inGfxFrame)

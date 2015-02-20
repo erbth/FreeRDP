@@ -11,17 +11,6 @@
 
 #include <X11/Xlib.h>
 #include <va/va.h>
-struct hwaccelSurface
-{
-	struct vaapiContext *vactx;
-
-	VASurfaceID vaSurface;
-	int refCount;
-
-	VARectangle *clipRects;
-	int numClipRects;
-};
-
 struct vaapiContext
 {
 	Display *display;
@@ -30,9 +19,8 @@ struct vaapiContext
 	
 	VAConfigID vaConfig;
 	VAContextID vaContext;
-	VASurfaceID *baseSurfaceID;
+	VASurfaceID *surfaces;
 
-	struct hwaccelSurface *surfaces;
 	int width, height;
 
 	int numSurfaces;
@@ -47,9 +35,6 @@ int vaapiGetBuffer (struct AVCodecContext *s, AVFrame *frame, int flags);
 enum AVPixelFormat vaapiGetFormat (AVCodecContext *avctx, const enum AVPixelFormat *formats);
 
 void vaapiSetupLibav (struct vaapiContext *vactx, struct AVCodecContext *avctx);
-
-struct hwaccelSurface *vaapiRefSurface (struct vaapiContext *vactx, VASurfaceID surface);
-void vaapiUnrefSurface (struct hwaccelSurface *hwSurface);
 
 struct vaapiContext *vaapiCreateContext ();
 int vaapiInit (struct vaapiContext *vactx, Display *display, int width, int height, int numSurfaces);

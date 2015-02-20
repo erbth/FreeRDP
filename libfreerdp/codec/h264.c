@@ -342,10 +342,7 @@ static int libavcodec_decompress(H264_CONTEXT* h264, BYTE* pSrcData, UINT32 SrcS
 			/* ... derive image from our surface ... */
 			vaStatus = vaSyncSurface (vactx->vaDisplay, vaSurface);
 			if (vaStatus != VA_STATUS_SUCCESS)
-			{
-				WLog_ERR (TAG, "couldn't sync surface: %s", vaErrorStr (vaStatus));
 				return -1;
-			}
 
 			vaStatus = vaGetImage (vactx->vaDisplay, vaSurface, 0, 0, sys->videoFrame->width, sys->videoFrame->height, vaImage->image_id);
 			if (vaStatus != VA_STATUS_SUCCESS)
@@ -422,12 +419,12 @@ static void libavcodec_uninit(H264_CONTEXT* h264)
 	if (!sys)
 		return;
 
-#ifdef WITH_LIBVA
 	if (sys->hwaccel)
 	{
+#ifdef WITH_LIBVA
 		vaapiDestroyContext ((struct vaapiContext **) &sys->hwaccel);
-	}
 #endif
+	}
 
 	if (sys->videoFrame)
 	{
@@ -565,7 +562,7 @@ int h264_decompress(H264_CONTEXT* h264, BYTE* pSrcData, UINT32 SrcSize,
 	RDPGFX_RECT16* rect;
 	primitives_t *prims = primitives_get();
 
-	struct timeval T1, T2, T3;
+	struct timeval T1, T2;
 
 	if (!h264)
 		return -1;
@@ -578,12 +575,14 @@ int h264_decompress(H264_CONTEXT* h264, BYTE* pSrcData, UINT32 SrcSize,
 	if (!(pDstData = *ppDstData))
 		return -1;
 
+	WaitForSingleObject (h264->mutex, INFINITE);
+
 	gettimeofday (&T1, NULL);
 
 	if ((status = h264->subsystem->Decompress(h264, pSrcData, SrcSize)) < 0)
 		return status;
-
-	gettimeofday (&T2, NULL);
+	
+	ReleaseMutex (h264->mutex);
 
 	pYUVData = h264->pYUVData;
 	iStride = h264->iStride;
@@ -613,6 +612,7 @@ int h264_decompress(H264_CONTEXT* h264, BYTE* pSrcData, UINT32 SrcSize,
 #endif
 		if (h264->hwaccel)
 		{
+#ifdef WITH_LIBVA
 			pDstPoint = pDstData + rect->top * nDstStep + rect->left * 4;
 			pYUVPoint[0] = pYUVData[0] + rect->top * iStride[0] + rect->left;
 
@@ -623,6 +623,7 @@ int h264_decompress(H264_CONTEXT* h264, BYTE* pSrcData, UINT32 SrcSize,
 			roi.height = height;
 
 			prims->NV12ToRGB_8u_P2AC4R((const BYTE**) pYUVPoint, iStride, pDstPoint, nDstStep, &roi);
+#endif
 		}
 		else
 		{
@@ -639,10 +640,9 @@ int h264_decompress(H264_CONTEXT* h264, BYTE* pSrcData, UINT32 SrcSize,
 		}
 	}
 
-	gettimeofday (&T3, NULL);
+	gettimeofday (&T2, NULL);
 
-	printf ("decoding took %u usec, and converting %u usec\n",
-		(unsigned int) (T2.tv_usec - T1.tv_usec), (unsigned int) (T3.tv_usec - T2.tv_usec));
+	printf ("decoding took %u usec.\n", (unsigned int) (T2.tv_usec - T1.tv_usec));
 
 	return 1;
 }
@@ -695,6 +695,8 @@ H264_CONTEXT* h264_context_new(BOOL Compressor)
 			free(h264);
 			return NULL;
 		}
+
+		h264->mutex = CreateMutex (NULL, FALSE, NULL);
 	}
 
 	return h264;
@@ -704,6 +706,8 @@ void h264_context_free(H264_CONTEXT* h264)
 {
 	if (h264)
 	{
+		CloseHandle (h264->mutex);
+
 		h264->subsystem->Uninit(h264);
 
 		free(h264);

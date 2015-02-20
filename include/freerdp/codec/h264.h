@@ -20,6 +20,8 @@
 #ifndef FREERDP_CODEC_H264_H
 #define FREERDP_CODEC_H264_H
 
+#include <winpr/crt.h>
+
 #include <freerdp/api.h>
 #include <freerdp/types.h>
 #include <freerdp/channels/rdpgfx.h>
@@ -53,6 +55,8 @@ struct _H264_CONTEXT
 	void* pSystemData;
 	void* hwaccel;
 	H264_CONTEXT_SUBSYSTEM* subsystem;
+
+	HANDLE mutex;
 };
 
 #ifdef __cplusplus
