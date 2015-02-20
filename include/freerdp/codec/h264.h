@@ -20,6 +20,8 @@
 #ifndef FREERDP_CODEC_H264_H
 #define FREERDP_CODEC_H264_H
 
+#include <winpr/crt.h>
+
 #include <freerdp/api.h>
 #include <freerdp/types.h>
 #include <freerdp/channels/rdpgfx.h>
@@ -51,7 +53,10 @@ struct _H264_CONTEXT
 	BYTE* pYUVData[3];
 
 	void* pSystemData;
+	void* hwaccel;
 	H264_CONTEXT_SUBSYSTEM* subsystem;
+
+	HANDLE mutex;
 };
 
 #ifdef __cplusplus
@@ -61,7 +66,8 @@ extern "C" {
 FREERDP_API int h264_compress(H264_CONTEXT* h264, BYTE* pSrcData, UINT32 SrcSize, BYTE** ppDstData, UINT32* pDstSize);
 
 FREERDP_API int h264_decompress(H264_CONTEXT* h264, BYTE* pSrcData, UINT32 SrcSize,
-		BYTE** ppDstData, DWORD DstFormat, int nDstStep, int nDstHeight, RDPGFX_RECT16* regionRects, int numRegionRect);
+		BYTE** ppDstData, DWORD DstFormat, int nDstStep, int nDstWidth, int nDstHeight,
+		RDPGFX_RECT16* regionRects, int numRegionRect);
 
 FREERDP_API int h264_context_reset(H264_CONTEXT* h264);
 

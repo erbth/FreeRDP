@@ -29,6 +29,8 @@
 #include <freerdp/codec/h264.h>
 #include <freerdp/log.h>
 
+#include <sys/time.h>
+
 #define TAG FREERDP_TAG("codec")
 
 /**
@@ -263,12 +265,19 @@ static H264_CONTEXT_SUBSYSTEM g_Subsystem_OpenH264 =
 #include <libavcodec/avcodec.h>
 #include <libavutil/avutil.h>
 
+#ifdef WITH_LIBVA
+#include <libavcodec/vaapi.h>
+#include <va/va.h>
+#include <freerdp/codec/vaapi_h264.h>
+#endif
+
 struct _H264_CONTEXT_LIBAVCODEC
 {
 	AVCodec* codec;
 	AVCodecContext* codecContext;
-	AVCodecParserContext* codecParser;
 	AVFrame* videoFrame;
+
+	void *hwaccel;
 };
 typedef struct _H264_CONTEXT_LIBAVCODEC H264_CONTEXT_LIBAVCODEC;
 
@@ -284,37 +293,121 @@ static int libavcodec_decompress(H264_CONTEXT* h264, BYTE* pSrcData, UINT32 SrcS
 	packet.data = pSrcData;
 	packet.size = SrcSize;
 
-	status = avcodec_decode_video2(sys->codecContext, sys->videoFrame, &gotFrame, &packet);
-
-	if (status < 0)
+	if (sys->hwaccel)
 	{
-		WLog_ERR(TAG, "Failed to decode video frame (status=%d)", status);
-		return -1;
-	}
+#ifdef WITH_LIBVA
+		struct vaapiContext *vactx = sys->hwaccel;
 
-#if 0
-	WLog_INFO(TAG, "libavcodec_decompress: frame decoded (status=%d, gotFrame=%d, width=%d, height=%d, Y=[%p,%d], U=[%p,%d], V=[%p,%d])",
-		status, gotFrame, sys->videoFrame->width, sys->videoFrame->height,
-		sys->videoFrame->data[0], sys->videoFrame->linesize[0],
-		sys->videoFrame->data[1], sys->videoFrame->linesize[1],
-		sys->videoFrame->data[2], sys->videoFrame->linesize[2]);
+		VASurfaceID vaSurface;
+		VAImage *vaImage;
+
+		VAStatus vaStatus;
+		
+		BYTE *buf;
+
+		if (!vactx->display)
+			return -1;
+
+		status = avcodec_decode_video2 (sys->codecContext, sys->videoFrame, &gotFrame, &packet);
+
+		if (status < 0)
+		{
+			WLog_ERR (TAG, "couldn't decode video frame with vaapi (status=%s)", status);
+			return -1;
+		}
+
+		if (gotFrame)
+		{
+			vaImage = &vactx->vaImage;
+
+			/* unmap foreign image, well, if it is there ... */
+			if (vactx->vaImage.image_id)
+			{
+				vaStatus = vaUnmapBuffer (vactx->vaDisplay, vaImage->buf);
+				if (vaStatus != VA_STATUS_SUCCESS)
+					return -1;
+			}
+
+
+			/* ... just wanted to say I've got it from here: http://stackoverflow.com/questions/3378560/how-to-disable-gcc-warnings-for-a-few-lines-of-code ... */
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
+#endif
+			vaSurface = (VASurfaceID) sys->videoFrame->data[3];
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
 #endif
 
-	if (gotFrame)
-	{
-		h264->pYUVData[0] = sys->videoFrame->data[0];
-		h264->pYUVData[1] = sys->videoFrame->data[1];
-		h264->pYUVData[2] = sys->videoFrame->data[2];
+			/* ... derive image from our surface ... */
+			vaStatus = vaSyncSurface (vactx->vaDisplay, vaSurface);
+			if (vaStatus != VA_STATUS_SUCCESS)
+				return -1;
 
-		h264->iStride[0] = sys->videoFrame->linesize[0];
-		h264->iStride[1] = sys->videoFrame->linesize[1];
-		h264->iStride[2] = sys->videoFrame->linesize[2];
+			vaStatus = vaGetImage (vactx->vaDisplay, vaSurface, 0, 0, sys->videoFrame->width, sys->videoFrame->height, vaImage->image_id);
+			if (vaStatus != VA_STATUS_SUCCESS)
+			{
+				WLog_ERR (TAG, "couldn't derive an VAImage from our surface ...\n");
+				return -1;
+			}
 
-		h264->width = sys->videoFrame->width;
-		h264->height = sys->videoFrame->height;
+			/* ... and finally map the buffer */ 
+			vaStatus = vaMapBuffer (vactx->vaDisplay, vaImage->buf, (void **) &buf);
+			if (vaStatus != VA_STATUS_SUCCESS)
+				return -1;
+
+			if (vaImage->format.fourcc != VA_FOURCC_NV12)
+				return -1;
+
+			h264->pYUVData[0] = buf + vaImage->offsets[0];
+			h264->pYUVData[1] = buf + vaImage->offsets[1];
+
+			h264->iStride[0] = vaImage->pitches[0];
+			h264->iStride[1] = vaImage->pitches[1];
+
+			h264->width = vaImage->width;
+			h264->height = vaImage->height;
+		}
+		else
+			return -2;
+#else
+		return -1;
+#endif
 	}
 	else
-		return -2;
+	{
+		status = avcodec_decode_video2(sys->codecContext, sys->videoFrame, &gotFrame, &packet);
+
+		if (status < 0)
+		{
+			WLog_ERR(TAG, "Failed to decode video frame (status=%d)", status);
+			return -1;
+		}
+
+#if 0
+		WLog_INFO(TAG, "libavcodec_decompress: frame decoded (status=%d, gotFrame=%d, width=%d, height=%d, Y=[%p,%d], U=[%p,%d], V=[%p,%d])",
+			status, gotFrame, sys->videoFrame->width, sys->videoFrame->height,
+			sys->videoFrame->data[0], sys->videoFrame->linesize[0],
+			sys->videoFrame->data[1], sys->videoFrame->linesize[1],
+			sys->videoFrame->data[2], sys->videoFrame->linesize[2]);
+#endif
+
+		if (gotFrame)
+		{
+			h264->pYUVData[0] = sys->videoFrame->data[0];
+			h264->pYUVData[1] = sys->videoFrame->data[1];
+			h264->pYUVData[2] = sys->videoFrame->data[2];
+
+			h264->iStride[0] = sys->videoFrame->linesize[0];
+			h264->iStride[1] = sys->videoFrame->linesize[1];
+			h264->iStride[2] = sys->videoFrame->linesize[2];
+
+			h264->width = sys->videoFrame->width;
+			h264->height = sys->videoFrame->height;
+		}
+		else
+			return -2;
+	}
 
 	return 1;
 }
@@ -326,14 +419,16 @@ static void libavcodec_uninit(H264_CONTEXT* h264)
 	if (!sys)
 		return;
 
+	if (sys->hwaccel)
+	{
+#ifdef WITH_LIBVA
+		vaapiDestroyContext ((struct vaapiContext **) &sys->hwaccel);
+#endif
+	}
+
 	if (sys->videoFrame)
 	{
 		av_free(sys->videoFrame);
-	}
-
-	if (sys->codecParser)
-	{
-		av_parser_close(sys->codecParser);
 	}
 
 	if (sys->codecContext)
@@ -361,7 +456,7 @@ static BOOL libavcodec_init(H264_CONTEXT* h264)
 
 	avcodec_register_all();
 
-	sys->codec = avcodec_find_decoder(CODEC_ID_H264);
+	sys->codec = avcodec_find_decoder(AV_CODEC_ID_H264);
 
 	if (!sys->codec)
 	{
@@ -388,13 +483,39 @@ static BOOL libavcodec_init(H264_CONTEXT* h264)
 		goto EXCEPTION;
 	}
 
-	sys->codecParser = av_parser_init(CODEC_ID_H264);
-
-	if (!sys->codecParser)
+#ifdef WITH_LIBVA
 	{
-		WLog_ERR(TAG, "Failed to initialize libav parser");
-		goto EXCEPTION;
+		struct vaapi_context *hwaccelContext;
+		struct vaapiContext *vactx;
+
+		/* well, init vaapi like stuff ... */
+		vactx = vaapiCreateContext ();
+		if (!vactx)
+		{
+			WLog_ERR (TAG, "Could not create a vaapi context.");
+			goto EXCEPTION;
+		}
+
+		sys->hwaccel = vactx;
+		h264->hwaccel = vactx;
+
+		sys->codecContext->opaque = vactx;
+
+		sys->codecContext->get_format = &vaapiGetFormat;
+		sys->codecContext->get_buffer2 = &vaapiGetBuffer;
+
+		hwaccelContext = av_malloc (sizeof (struct vaapi_context));
+		if (!hwaccelContext)
+		{
+			WLog_ERR (TAG, "seems like there's no memory left ...");
+			goto EXCEPTION;
+		}
+
+		sys->codecContext->hwaccel_context = hwaccelContext;
+
+		memset (hwaccelContext, 0, sizeof (struct vaapi_context));
 	}
+#endif
 
 	sys->videoFrame = avcodec_alloc_frame();
 
@@ -407,6 +528,9 @@ static BOOL libavcodec_init(H264_CONTEXT* h264)
 	return TRUE;
 
 EXCEPTION:
+#ifdef WITH_LIBVA
+	vaapiDestroyContext ((struct vaapiContext **) &sys->hwaccel);
+#endif
 	libavcodec_uninit(h264);
 
 	return FALSE;
@@ -423,7 +547,8 @@ static H264_CONTEXT_SUBSYSTEM g_Subsystem_libavcodec =
 #endif
 
 int h264_decompress(H264_CONTEXT* h264, BYTE* pSrcData, UINT32 SrcSize,
-		BYTE** ppDstData, DWORD DstFormat, int nDstStep, int nDstHeight, RDPGFX_RECT16* regionRects, int numRegionRects)
+		BYTE** ppDstData, DWORD DstFormat, int nDstStep, int nDstWidth,
+		int nDstHeight, RDPGFX_RECT16* regionRects, int numRegionRects)
 {
 	int index;
 	int status;
@@ -435,8 +560,9 @@ int h264_decompress(H264_CONTEXT* h264, BYTE* pSrcData, UINT32 SrcSize,
 	int width, height;
 	BYTE* pYUVPoint[3];
 	RDPGFX_RECT16* rect;
-	int UncompressedSize;
 	primitives_t *prims = primitives_get();
+
+	struct timeval T1, T2;
 
 	if (!h264)
 		return -1;
@@ -449,13 +575,14 @@ int h264_decompress(H264_CONTEXT* h264, BYTE* pSrcData, UINT32 SrcSize,
 	if (!(pDstData = *ppDstData))
 		return -1;
 
+	WaitForSingleObject (h264->mutex, INFINITE);
+
+	gettimeofday (&T1, NULL);
+
 	if ((status = h264->subsystem->Decompress(h264, pSrcData, SrcSize)) < 0)
 		return status;
-
-	UncompressedSize = h264->width * h264->height * 4;
-
-	if (UncompressedSize > (nDstStep * nDstHeight))
-		return -1;
+	
+	ReleaseMutex (h264->mutex);
 
 	pYUVData = h264->pYUVData;
 	iStride = h264->iStride;
@@ -464,25 +591,58 @@ int h264_decompress(H264_CONTEXT* h264, BYTE* pSrcData, UINT32 SrcSize,
 	{
 		rect = &(regionRects[index]);
 
+		/* Check, if the ouput rectangle is valid in decoded h264 frame. */
+		if ((rect->right > h264->width) || (rect->left > h264->width))
+			return -1;
+		if ((rect->top > h264->height) || (rect->bottom > h264->height))
+			return -1;
+
+		/* Check, if the output rectangle is valid in destination buffer. */
+		if ((rect->right > nDstWidth) || (rect->left > nDstWidth))
+			return -1;
+		if ((rect->bottom > nDstHeight) || (rect->top > nDstHeight))
+			return -1;
+
 		width = rect->right - rect->left;
 		height = rect->bottom - rect->top;
-		
-		pDstPoint = pDstData + rect->top * nDstStep + rect->left * 4;
-		pYUVPoint[0] = pYUVData[0] + rect->top * iStride[0] + rect->left;
-
-		pYUVPoint[1] = pYUVData[1] + rect->top/2 * iStride[1] + rect->left/2;
-		pYUVPoint[2] = pYUVData[2] + rect->top/2 * iStride[2] + rect->left/2;
 
 #if 0
 		WLog_INFO(TAG, "regionRect: x: %d y: %d width: %d height: %d",
 		       rect->left, rect->top, width, height);
 #endif
+		if (h264->hwaccel)
+		{
+#ifdef WITH_LIBVA
+			pDstPoint = pDstData + rect->top * nDstStep + rect->left * 4;
+			pYUVPoint[0] = pYUVData[0] + rect->top * iStride[0] + rect->left;
 
-		roi.width = width;
-		roi.height = height;
+			/* NV12: there are always packets of words in the UV plane ... */
+			pYUVPoint[1] = pYUVData[1] + rect->top/2 * iStride[1] + (rect->left & ~0x0001);
 
-		prims->YUV420ToRGB_8u_P3AC4R((const BYTE**) pYUVPoint, iStride, pDstPoint, nDstStep, &roi);
+			roi.width = width;
+			roi.height = height;
+
+			prims->NV12ToRGB_8u_P2AC4R((const BYTE**) pYUVPoint, iStride, pDstPoint, nDstStep, &roi);
+#endif
+		}
+		else
+		{
+			pDstPoint = pDstData + rect->top * nDstStep + rect->left * 4;
+			pYUVPoint[0] = pYUVData[0] + rect->top * iStride[0] + rect->left;
+
+			pYUVPoint[1] = pYUVData[1] + rect->top/2 * iStride[1] + rect->left/2;
+			pYUVPoint[2] = pYUVData[2] + rect->top/2 * iStride[2] + rect->left/2;
+
+			roi.width = width;
+			roi.height = height;
+
+			prims->YUV420ToRGB_8u_P3AC4R((const BYTE**) pYUVPoint, iStride, pDstPoint, nDstStep, &roi);
+		}
 	}
+
+	gettimeofday (&T2, NULL);
+
+	printf ("decoding took %u usec.\n", (unsigned int) (T2.tv_usec - T1.tv_usec));
 
 	return 1;
 }
@@ -535,6 +695,8 @@ H264_CONTEXT* h264_context_new(BOOL Compressor)
 			free(h264);
 			return NULL;
 		}
+
+		h264->mutex = CreateMutex (NULL, FALSE, NULL);
 	}
 
 	return h264;
@@ -544,6 +706,8 @@ void h264_context_free(H264_CONTEXT* h264)
 {
 	if (h264)
 	{
+		CloseHandle (h264->mutex);
+
 		h264->subsystem->Uninit(h264);
 
 		free(h264);

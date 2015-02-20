@@ -160,17 +160,28 @@ void license_write_preamble(wStream* s, BYTE bMsgType, BYTE flags, UINT16 wMsgSi
 wStream* license_send_stream_init(rdpLicense* license)
 {
 	wStream* s;
+	BOOL do_crypt = license->rdp->do_crypt;
+
 	license->rdp->sec_flags = SEC_LICENSE_PKT;
 
-	if (license->rdp->do_crypt)
+	/**
+	 * Encryption of licensing packets is optional even if the rdp security
+	 * layer is used. If the peer has not indicated that it is capable of
+	 * processing encrypted licensing packets (rdp->do_crypt_license) we turn
+	 * off encryption (via rdp->do_crypt) before initializing the rdp stream
+	 * and reenable it afterwards.
+	 */
+
+	if (do_crypt)
+	{
 		license->rdp->sec_flags |= SEC_LICENSE_ENCRYPT_CS;
+		license->rdp->do_crypt = license->rdp->do_crypt_license;
+	}
 
 	s = transport_send_stream_init(license->rdp->transport, 4096);
 	rdp_init_stream(license->rdp, s);
 
-	if (!license->rdp->do_crypt_license)
-			license->rdp->sec_flags &= ~SEC_ENCRYPT;
-
+	license->rdp->do_crypt = do_crypt;
 	license->PacketHeaderLength = Stream_GetPosition(s);
 	Stream_Seek(s, LICENSE_PREAMBLE_LENGTH);
 	return s;
@@ -361,9 +372,11 @@ void license_generate_keys(rdpLicense* license)
 void license_generate_hwid(rdpLicense* license)
 {
 	CryptoMd5 md5;
-	BYTE* mac_address;
+	BYTE macAddress[6];
+
+	ZeroMemory(macAddress, sizeof(macAddress));
 	ZeroMemory(license->HardwareId, HWID_LENGTH);
-	mac_address = license->rdp->transport->TcpIn->mac_address;
+
 	md5 = crypto_md5_init();
 
 	if (!md5)
@@ -372,7 +385,7 @@ void license_generate_hwid(rdpLicense* license)
 		return;
 	}
 
-	crypto_md5_update(md5, mac_address, 6);
+	crypto_md5_update(md5, macAddress, sizeof(macAddress));
 	crypto_md5_final(md5, &license->HardwareId[HWID_PLATFORM_ID_LENGTH]);
 }
 
@@ -381,12 +394,12 @@ void license_get_server_rsa_public_key(rdpLicense* license)
 	BYTE* Exponent;
 	BYTE* Modulus;
 	int ModulusLength;
+	rdpSettings* settings = license->rdp->settings;
 
 	if (license->ServerCertificate->length < 1)
 	{
 		certificate_read_server_certificate(license->certificate,
-											license->rdp->settings->ServerCertificate,
-											license->rdp->settings->ServerCertificateLength);
+			settings->ServerCertificate, settings->ServerCertificateLength);
 	}
 
 	Exponent = license->certificate->cert_info.exponent;
@@ -395,7 +408,7 @@ void license_get_server_rsa_public_key(rdpLicense* license)
 	CopyMemory(license->Exponent, Exponent, 4);
 	license->ModulusLength = ModulusLength;
 	license->Modulus = (BYTE*) malloc(ModulusLength);
-	memcpy(license->Modulus, Modulus, ModulusLength);
+	CopyMemory(license->Modulus, Modulus, ModulusLength);
 }
 
 void license_encrypt_premaster_secret(rdpLicense* license)
@@ -408,14 +421,14 @@ void license_encrypt_premaster_secret(rdpLicense* license)
 	WLog_DBG(TAG, "Exponent:");
 	winpr_HexDump(TAG, WLOG_DEBUG, license->Exponent, 4);
 #endif
-	EncryptedPremasterSecret = (BYTE*) malloc(license->ModulusLength);
-	ZeroMemory(EncryptedPremasterSecret, license->ModulusLength);
+	EncryptedPremasterSecret = (BYTE*) calloc(1, license->ModulusLength);
+
 	license->EncryptedPremasterSecret->type = BB_RANDOM_BLOB;
 	license->EncryptedPremasterSecret->length = PREMASTER_SECRET_LENGTH;
 #ifndef LICENSE_NULL_PREMASTER_SECRET
 	license->EncryptedPremasterSecret->length =
 		crypto_rsa_public_encrypt(license->PremasterSecret, PREMASTER_SECRET_LENGTH,
-								  license->ModulusLength, license->Modulus, license->Exponent, EncryptedPremasterSecret);
+			license->ModulusLength, license->Modulus, license->Exponent, EncryptedPremasterSecret);
 #endif
 	license->EncryptedPremasterSecret->data = EncryptedPremasterSecret;
 }
@@ -423,8 +436,10 @@ void license_encrypt_premaster_secret(rdpLicense* license)
 void license_decrypt_platform_challenge(rdpLicense* license)
 {
 	CryptoRc4 rc4;
+
 	license->PlatformChallenge->data = (BYTE*) malloc(license->EncryptedPlatformChallenge->length);
 	license->PlatformChallenge->length = license->EncryptedPlatformChallenge->length;
+
 	rc4 = crypto_rc4_init(license->LicensingEncryptionKey, LICENSING_ENCRYPTION_KEY_LENGTH);
 
 	if (!rc4)
@@ -436,6 +451,7 @@ void license_decrypt_platform_challenge(rdpLicense* license)
 	crypto_rc4(rc4, license->EncryptedPlatformChallenge->length,
 			   license->EncryptedPlatformChallenge->data,
 			   license->PlatformChallenge->data);
+
 	crypto_rc4_free(rc4);
 }
 

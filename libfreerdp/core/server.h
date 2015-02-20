@@ -90,7 +90,7 @@ struct WTSVirtualChannelManager
 
 	rdpPeerChannel* drdynvc_channel;
 	BYTE drdynvc_state;
-	UINT32 dvc_channel_id_seq;
+	LONG dvc_channel_id_seq;
 
 	wArrayList* dynamicVirtualChannels;
 };
@@ -172,5 +172,8 @@ BOOL CDECL FreeRDP_WTSIsChildSessionsEnabled(PBOOL pbEnabled);
 BOOL CDECL FreeRDP_WTSGetChildSessionId(PULONG pSessionId);
 
 DWORD WINAPI FreeRDP_WTSGetActiveConsoleSessionId(void);
+
+BOOL WINAPI FreeRDP_WTSLogoffUser(HANDLE hServer);
+BOOL WINAPI FreeRDP_WTSLogonUser(HANDLE hServer, LPCSTR username, LPCSTR password, LPCSTR domain);
 
 #endif /* FREERDP_CORE_SERVER_H */

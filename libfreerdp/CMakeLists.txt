@@ -131,7 +131,8 @@ set(CODEC_SRCS
 	codec/zgfx.c
 	codec/clear.c
 	codec/jpeg.c
-	codec/h264.c)
+	codec/h264.c
+	codec/vaapi_h264.c)
 
 set(CODEC_SSE2_SRCS
 	codec/rfx_sse2.c
@@ -176,6 +177,18 @@ if(WITH_LIBAVCODEC)
 	find_library(LIBAVCODEC_LIB avcodec)
 	find_library(LIBAVUTIL_LIB avutil)
 	freerdp_library_add(${LIBAVCODEC_LIB} ${LIBAVUTIL_LIB})
+
+	if (WITH_LIBVA)
+		if (WITH_X11)
+			if (LIBVA_FOUND)
+				freerdp_definition_add (-DWITH_LIBVA)
+				freerdp_include_directory_add (${LIBVA_INCLUDE_DIR})
+				freerdp_library_add (${LIBVA_LIBRARIES})
+			endif ()
+		else ()
+			message (WARNING "Well, vaapi is oly supported with X11 at the moment.")
+		endif ()
+	endif ()
 endif()
 
 freerdp_module_add(${CODEC_SRCS})
@@ -199,6 +212,7 @@ set(PRIMITIVES_SRCS
 	primitives/prim_shift.c
 	primitives/prim_sign.c
 	primitives/prim_YUV.c
+	primitives/prim_NV12.c
 	primitives/prim_YCoCg.c
 	primitives/primitives.c
 	primitives/prim_internal.h)
@@ -213,6 +227,7 @@ set(PRIMITIVES_OPT_SRCS
 	primitives/prim_shift_opt.c
 	primitives/prim_sign_opt.c
 	primitives/prim_YUV_opt.c
+	primitives/prim_NV12_opt.c
 	primitives/prim_YCoCg_opt.c)
 
 freerdp_definition_add(-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE})
