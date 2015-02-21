@@ -1045,10 +1045,7 @@ static UINT32 smartcard_GetAttrib_Call(SMARTCARD_DEVICE* smartcard, SMARTCARD_OP
 	if (status != SCARD_S_SUCCESS)
 		return status;
 
-	if (cbAttrLenAlloc)
-		SCardFreeMemory(operation->hContext, ret.pbAttr);
-	else
-		free(ret.pbAttr);
+	free(ret.pbAttr);
 
 	return ret.ReturnCode;
 }

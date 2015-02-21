@@ -1481,7 +1481,25 @@ void* xf_client_thread(void* param)
 	if (instance->settings->AuthenticationOnly || !status)
 	{
 		freerdp_disconnect(instance);
-		WLog_ERR(TAG, "Authentication only, exit status %d", !status);
+		
+		if (instance->settings->AuthenticationOnly)
+		{
+			WLog_ERR(TAG, "Authentication only, exit status %d", !status);
+		}
+		else
+		{
+#ifdef WITH_GUI
+			if(logon_error()){
+				printf( "ERROR MESSAGE COULDN'T BE DISPLAYED\n"
+					"Authentication failure, check credentials.\n"
+					"If credentials are valid, the NTLMSSP implementation may be to blame.\n");
+			}
+#else
+			WLog_ERR(TAG, "Authentication failure, check credentials."
+					"If credentials are valid, the NTLMSSP implementation may be to blame.");
+#endif
+		}
+
 		exit_code = XF_EXIT_CONN_FAILED;
 		ExitThread(exit_code);
 	}
