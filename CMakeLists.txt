@@ -86,7 +86,7 @@ if (${GIT_REVISION} STREQUAL "n/a")
   git_rev_parse(GIT_REVISION --short)
 endif()
 if(ANDROID OR IOS)
-	SET(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM ONLY)
+    SET(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM ONLY)
 endif(ANDROID OR IOS)
 
 message(STATUS "Git Revision ${GIT_REVISION}")
@@ -175,6 +175,14 @@ if(CMAKE_COMPILER_IS_GNUCC)
 			set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-format")
 		endif()
 	endif()
+	CHECK_C_COMPILER_FLAG (-Wimplicit-function-declaration Wimplicit-function-declaration)
+	if(Wimplicit-function-declaration)
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wimplicit-function-declaration")
+	endif()
+	CHECK_C_COMPILER_FLAG (-Wredundant-decls Wredundant-decls)
+	if(Wredundant-decls)
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wredundant-decls")
+	endif()
 	if(CMAKE_BUILD_TYPE STREQUAL "Release")
 		set(CMAKE_C_FLAGS_RELEASE "-DNDEBUG")
 		set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG")
@@ -219,6 +227,21 @@ if("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")
 endif()
 
 if(MSVC)
+	# Remove previous warning definitions,
+	# NMake is otherwise complaining.
+	foreach (flags_var_to_scrub
+		CMAKE_C_FLAGS
+		CMAKE_CXX_FLAGS
+		CMAKE_CXX_FLAGS_RELEASE
+		CMAKE_CXX_FLAGS_RELWITHDEBINFO
+		CMAKE_CXX_FLAGS_MINSIZEREL
+		CMAKE_C_FLAGS_RELEASE
+		CMAKE_C_FLAGS_RELWITHDEBINFO
+		CMAKE_C_FLAGS_MINSIZEREL)
+		string (REGEX REPLACE "(^| )[/-]W[ ]*[1-9]" " "
+		"${flags_var_to_scrub}" "${${flags_var_to_scrub}}")
+	endforeach()
+
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /Gd")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /W3")
 
@@ -266,7 +289,7 @@ if(WIN32)
 		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DWINVER=0x0602 -DWIN32_WINNT=0x0602")
 		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DWINVER=0x0602 -DWIN32_WINNT=0x0602")
 	endif()
-	
+
 	if (FREERDP_EXTERNAL_SSL_PATH)
 		set(OPENSSL_ROOT_DIR ${FREERDP_EXTERNAL_SSL_PATH})
 	endif()
@@ -335,6 +358,14 @@ if(APPLE)
 	endif()
 endif(APPLE)
 
+# BSD
+if(${CMAKE_SYSTEM_NAME} MATCHES "BSD")
+	set(BSD TRUE)
+	if(${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD")
+		set(FREEBSD TRUE)
+	endif()
+endif()
+
 # Android
 if(ANDROID)
   set(WITH_LIBRARY_VERSIONING "OFF")
@@ -349,13 +380,13 @@ if(ANDROID)
 	endif()
 	set(CMAKE_C_LINK_FLAGS "${CMAKE_C_LINK_FLAGS} -llog")
 
-    if (NOT FREERDP_EXTERNAL_JPEG_PATH)
+	if (NOT FREERDP_EXTERNAL_JPEG_PATH)
 		if(IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/jpeg8d")
-            set(FREERDP_EXTERNAL_JPEG_PATH "${CMAKE_CURRENT_SOURCE_DIR}/external/jpeg8d")
+			set(FREERDP_EXTERNAL_JPEG_PATH "${CMAKE_CURRENT_SOURCE_DIR}/external/jpeg8d")
 		else()
 			message(STATUS "FREERDP_EXTERNAL_SSL_PATH not set! - Needs to be set if openssl is not found in the android NDK (which usually isn't)")
 		endif()
-    endif()
+	endif()
 	if (NOT FREERDP_EXTERNAL_SSL_PATH)
 		if(IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/openssl")
 			set(FREERDP_EXTERNAL_SSL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/external/openssl")
@@ -441,6 +472,10 @@ set(OPENSLES_FEATURE_TYPE "OPTIONAL")
 set(OPENSLES_FEATURE_PURPOSE "multimedia")
 set(OPENSLES_FEATURE_DESCRIPTION "OpenSLES audio / video")
 
+set(OSS_FEATURE_TYPE "RECOMMENDED")
+set(OSS_FEATURE_PURPOSE "sound")
+set(OSS_FEATURE_DESCRIPTION "audio input, audio output and multimedia redirection")
+
 set(ALSA_FEATURE_TYPE "RECOMMENDED")
 set(ALSA_FEATURE_PURPOSE "sound")
 set(ALSA_FEATURE_DESCRIPTION "audio input, audio output and multimedia redirection")
@@ -494,6 +529,7 @@ if(WIN32)
 	set(WAYLAND_FEATURE_TYPE "DISABLED")
 	set(ZLIB_FEATURE_TYPE "DISABLED")
 	set(DIRECTFB_FEATURE_TYPE "DISABLED")
+	set(OSS_FEATURE_TYPE "DISABLED")
 	set(ALSA_FEATURE_TYPE "DISABLED")
 	set(PULSE_FEATURE_TYPE "DISABLED")
 	set(CUPS_FEATURE_TYPE "DISABLED")
@@ -510,6 +546,7 @@ if(APPLE)
 	set(GSTREAMER_1_0_FEATURE_TYPE "OPTIONAL")
 	set(X11_FEATURE_TYPE "OPTIONAL")
 	set(WAYLAND_FEATURE_TYPE "DISABLED")
+	set(OSS_FEATURE_TYPE "DISABLED")
 	set(ALSA_FEATURE_TYPE "DISABLED")
 	if(IOS)
 		set(X11_FEATURE_TYPE "DISABLED")
@@ -526,6 +563,7 @@ if(ANDROID)
 	set(X11_FEATURE_TYPE "DISABLED")
 	set(WAYLAND_FEATURE_TYPE "DISABLED")
 	set(DIRECTFB_FEATURE_TYPE "DISABLED")
+	set(OSS_FEATURE_TYPE "DISABLED")
 	set(ALSA_FEATURE_TYPE "DISABLED")
 	set(PULSE_FEATURE_TYPE "DISABLED")
 	set(CUPS_FEATURE_TYPE "DISABLED")
@@ -548,6 +586,7 @@ find_feature(ZLIB ${ZLIB_FEATURE_TYPE} ${ZLIB_FEATURE_PURPOSE} ${ZLIB_FEATURE_DE
 find_feature(OpenSSL ${OPENSSL_FEATURE_TYPE} ${OPENSSL_FEATURE_PURPOSE} ${OPENSSL_FEATURE_DESCRIPTION})
 find_feature(OpenSLES ${OPENSLES_FEATURE_TYPE} ${OPENSLES_FEATURE_PURPOSE} ${OPENSLES_FEATURE_DESCRIPTION})
 
+find_feature(OSS ${OSS_FEATURE_TYPE} ${OSS_FEATURE_PURPOSE} ${OSS_FEATURE_DESCRIPTION})
 find_feature(ALSA ${ALSA_FEATURE_TYPE} ${ALSA_FEATURE_PURPOSE} ${ALSA_FEATURE_DESCRIPTION})
 find_feature(Pulse ${PULSE_FEATURE_TYPE} ${PULSE_FEATURE_PURPOSE} ${PULSE_FEATURE_DESCRIPTION})
 
@@ -592,6 +631,12 @@ set(FREERDP_EXTENSION_PATH "${CMAKE_INSTALL_FULL_LIBDIR}/freerdp/extensions")
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+if(BSD)
+	if(IS_DIRECTORY /usr/local/include)
+		include_directories(/usr/local/include)
+		link_directories(/usr/local/lib)
+	endif()
+endif()
 
 # Configure files
 add_definitions("-DHAVE_CONFIG_H")
@@ -621,11 +666,11 @@ endif()
 
 include(CTest)
 
-if(BUILD_TESTING)	
+if(BUILD_TESTING)
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DFREERDP_TEST_EXPORTS")
-	
+
 	enable_testing()
-	
+
 	if(MSVC)
 		set(TESTING_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 	else()

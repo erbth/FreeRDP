@@ -118,6 +118,8 @@ default.log
 
 *.autosave
 
+*.ppm
+
 # etags
 TAGS
 

@@ -54,6 +54,8 @@
  * 000007ab:00000b3d -> TS_RFX_TILE::CrData
  */
 
+#define TEST_RFX_TILESET_LENGTH 2878
+
 const BYTE TEST_RFX_TILESET[2878] =
 	"\xc7\xcc\x3e\x0b\x00\x00\x01\x01\xc2\xca\x00\x00\x51\x50\x01\x40"
 	"\x01\x00\x23\x0b\x00\x00\x66\x66\x77\x88\x98\xc3\xca\x23\x0b\x00"
@@ -758,5 +760,73 @@ const UINT32 TEST_RFX_XRGB_IMAGE[4096] =
 
 int TestFreeRDPCodecRemoteFX(int argc, char* argv[])
 {
-	return 0;
+	int status = 0;
+	RFX_CONTEXT *rfx = NULL;
+	RFX_MESSAGE *message = NULL;
+	RFX_TILE *tile = NULL;
+	
+	int i, j;
+	char buffer[20];
+	FILE *output;
+	BYTE *rgbData;
+	
+	
+	rfx = rfx_context_new (FALSE);
+	if (!rfx)
+	{
+		fprintf (stderr, "couldn't init rfx context ...\n");
+		status = -1;
+		goto theEnd;
+	}
+	
+	
+	/* ... decode TS_RFX_TILESET message ... */
+	message = rfx_process_message (rfx, TEST_RFX_TILESET, TEST_RFX_TILESET_LENGTH);
+	
+	
+	/* ... and write to file ... */
+	if (rfx->pixel_format == RDP_PIXEL_FORMAT_B8G8R8A8)
+	{
+		for (i = 0; i < message->numTiles; i ++)
+		{
+			snprintf (buffer, 20, "tile%d.ppm", i);
+			
+			output = fopen (buffer, "wb");
+			if (!output)
+			{
+				fprintf (stderr, "couldn't create %s!\n", buffer);
+				status = -1;
+				break;
+			}
+			
+			
+			tile = message->tiles[i];
+			
+			fprintf (output, "P6\n64 64\n255\n");
+			
+			rgbData = tile->data;
+			
+			for (j = 0; j < 4096; j ++)
+			{
+				buffer[2] = *rgbData++;
+				buffer[1] = *rgbData++;
+				buffer[0] = *rgbData++;
+				
+				fwrite (buffer, 3, 1, output);
+				
+				rgbData ++;
+			}
+			
+			fclose (output);
+		}
+	}
+	
+theEnd:
+	if (message)
+		rfx_message_free (rfx, message);
+
+	if (rfx)
+		rfx_context_free (rfx);
+	
+	return status;
 }

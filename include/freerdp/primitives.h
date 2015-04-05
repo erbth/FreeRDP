@@ -223,7 +223,11 @@ typedef struct
 	__YCoCgToRGB_8u_AC4R_t YCoCgToRGB_8u_AC4R;
 	__RGB565ToARGB_16u32u_C3C4_t RGB565ToARGB_16u32u_C3C4;
 	__YUV420ToRGB_8u_P3AC4R_t YUV420ToRGB_8u_P3AC4R;
+<<<<<<< HEAD
 	__NV12ToRGB_8u_P2AC4R_t NV12ToRGB_8u_P2AC4R;
+=======
+	__RGBToYUV420_8u_P3AC4R_t RGBToYUV420_8u_P3AC4R;
+>>>>>>> RemoteFX
 } primitives_t;
 
 #ifdef __cplusplus

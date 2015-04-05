@@ -34,6 +34,7 @@
 #include "rfx_differential.h"
 #include "rfx_quantization.h"
 #include "rfx_dwt.h"
+#include <rfxAsm.h>
 
 #include "rfx_decode.h"
 
@@ -93,6 +94,7 @@ void rfx_decode_format_rgb(INT16* r_buf, INT16* g_buf, INT16* b_buf,
 	}
 }
 
+#ifndef WITH_ASM
 static void rfx_decode_component(RFX_CONTEXT* context, const UINT32* quantization_values,
 	const BYTE* data, int size, INT16* buffer)
 {
@@ -122,6 +124,7 @@ static void rfx_decode_component(RFX_CONTEXT* context, const UINT32* quantizatio
 
 	BufferPool_Return(context->priv->BufferPool, dwt_buffer);
 }
+#endif
 
 /* rfx_decode_ycbcr_to_rgb code now resides in the primitives library. */
 
@@ -133,6 +136,11 @@ BOOL rfx_decode_rgb(RFX_CONTEXT* context, RFX_TILE* tile, BYTE* rgb_buffer, int 
 	UINT32 *y_quants, *cb_quants, *cr_quants;
 	static const prim_size_t roi_64x64 = { 64, 64 };
 	const primitives_t *prims = primitives_get();
+	
+#ifdef WITH_ASM
+	INT16* dwt_buffer;
+	BYTE mode;
+#endif
 
 	PROFILER_ENTER(context->priv->prof_rfx_decode_rgb);
 
@@ -145,9 +153,29 @@ BOOL rfx_decode_rgb(RFX_CONTEXT* context, RFX_TILE* tile, BYTE* rgb_buffer, int 
 	pSrcDst[1] = (INT16*)((BYTE*)(&pBuffer[((8192 + 32) * 1) + 16])); /* cb_g_buffer */
 	pSrcDst[2] = (INT16*)((BYTE*)(&pBuffer[((8192 + 32) * 2) + 16])); /* cr_b_buffer */
 
+#ifdef WITH_ASM
+	dwt_buffer = BufferPool_Take (context->priv->BufferPool, -1);
+	
+	if (context->mode == RLGR3)
+		mode = 1;
+	
+	else
+		mode = 0;
+	
+	/* data source should be padded by 4 bytes. */
+	/* Sorry, but didn't want to pad down to above transport just for FOUR bytes. */
+	/* hopefully it's our dta anyway, and it's just read access */
+	rfxDecodeTileAsm (tile->YData, pSrcDst[0], dwt_buffer, y_quants, mode);
+	rfxDecodeTileAsm (tile->CbData, pSrcDst[1], dwt_buffer, cb_quants, mode);
+	rfxDecodeTileAsm (tile->CrData, pSrcDst[2], dwt_buffer, cr_quants, mode);
+	
+	BufferPool_Return (context->priv->BufferPool, dwt_buffer);
+	
+#else
 	rfx_decode_component(context, y_quants, tile->YData, tile->YLen, pSrcDst[0]); /* YData */
 	rfx_decode_component(context, cb_quants, tile->CbData, tile->CbLen, pSrcDst[1]); /* CbData */
 	rfx_decode_component(context, cr_quants, tile->CrData, tile->CrLen, pSrcDst[2]); /* CrData */
+#endif
 
 	PROFILER_ENTER(context->priv->prof_rfx_ycbcr_to_rgb);
 	prims->yCbCrToRGB_16s16s_P3P3((const INT16**) pSrcDst, 64 * sizeof(INT16),
