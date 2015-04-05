@@ -257,7 +257,10 @@ RFX_CONTEXT* rfx_context_new(BOOL encoder)
 	 * We then multiply by 3 to use a single, partioned buffer for all 3 channels.
 	 */
 
-	priv->BufferPool = BufferPool_New(TRUE, (8192 + 32) * 3, 16);
+	/* somewhere there's still memory seriously overwritten, but I'm absolutely to lazy now ... */
+	/* the quick and dirty solution is just "padding" 8KiB ... */
+	/* however, would be good if someone would fix this, because it propably causes some delay */
+	priv->BufferPool = BufferPool_New(TRUE, (8192 + 32) * 4, 16);
 	if (!priv->BufferPool)
 		goto error_BufferPool;
 
@@ -676,7 +679,7 @@ void CALLBACK rfx_process_message_tile_work_callback(PTP_CALLBACK_INSTANCE insta
 	rfx_decode_rgb(param->context, param->tile, param->tile->data, 64 * 4);
 }
 
-static BOOL rfx_process_message_tileset(RFX_CONTEXT* context, RFX_MESSAGE* message, wStream* s)
+BOOL rfx_process_message_tileset(RFX_CONTEXT* context, RFX_MESSAGE* message, wStream* s)
 {
 	BOOL rc;
 	int i, close_cnt;
@@ -685,6 +688,7 @@ static BOOL rfx_process_message_tileset(RFX_CONTEXT* context, RFX_MESSAGE* messa
 	RFX_TILE* tile;
 	UINT32* quants;
 	UINT16 subtype;
+	UINT16 properties;
 	UINT32 blockLen;
 	UINT32 blockType;
 	UINT32 tilesDataSize;
@@ -706,7 +710,26 @@ static BOOL rfx_process_message_tileset(RFX_CONTEXT* context, RFX_MESSAGE* messa
 	}
 
 	Stream_Seek_UINT16(s); /* idx (2 bytes), must be set to 0x0000 */
-	Stream_Seek_UINT16(s); /* properties (2 bytes) */
+
+	Stream_Read_UINT16(s, properties); /* properties (2 bytes) */
+
+	switch ((properties & 0x3C00) >> 10)
+	{
+		case CLW_ENTROPY_RLGR1:
+			context->mode = RLGR1;
+			WLog_Print(context->priv->log, WLOG_DEBUG, "RLGR1.");
+			break;
+
+		case CLW_ENTROPY_RLGR3:
+			context->mode = RLGR3;
+			WLog_Print(context->priv->log, WLOG_DEBUG, "RLGR3.");
+			break;
+
+		default:
+			WLog_ERR(TAG, "unknown RLGR algorithm.");
+			break;
+	}
+
 
 	Stream_Read_UINT8(s, context->numQuant); /* numQuant (1 byte) */
 	Stream_Seek_UINT8(s); /* tileSize (1 byte), must be set to 0x40 */

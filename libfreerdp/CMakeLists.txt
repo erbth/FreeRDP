@@ -104,22 +104,6 @@ set(CODEC_SRCS
 	codec/bitmap.c
 	codec/interleaved.c
 	codec/progressive.c
-	codec/rfx_bitstream.h
-	codec/rfx_constants.h
-	codec/rfx_decode.c
-	codec/rfx_decode.h
-	codec/rfx_differential.c
-	codec/rfx_differential.h
-	codec/rfx_dwt.c
-	codec/rfx_dwt.h
-	codec/rfx_encode.c
-	codec/rfx_encode.h
-	codec/rfx_quantization.c
-	codec/rfx_quantization.h
-	codec/rfx_rlgr.c
-	codec/rfx_rlgr.h
-	codec/rfx_types.h
-	codec/rfx.c
 	codec/region.c
 	codec/nsc.c
 	codec/nsc_encode.c
@@ -132,6 +116,41 @@ set(CODEC_SRCS
 	codec/clear.c
 	codec/jpeg.c
 	codec/h264.c)
+
+# RemoteFX
+set(CODEC_RFX_SRCS
+	codec/rfx_bitstream.h
+	codec/rfx_constants.h
+	codec/rfx_decode.c
+	codec/rfx_decode.h
+	codec/rfx_differential.c
+	codec/rfx_differential.h
+	codec/rfx_dwt.c
+	codec/rfx_dwt.h
+	codec/rfx_encode.c
+	codec/rfx_encode.h
+	codec/rfx_rlgr.c
+	codec/rfx_rlgr.h
+	codec/rfx_quantization.c
+	codec/rfx_quantization.h
+	codec/rfx_types.h
+	codec/rfx.c)
+	
+if (WITH_ASM)
+	freerdp_definition_add (-DWITH_ASM)
+	
+	freerdp_include_directory_add ("${CMAKE_CURRENT_SOURCE_DIR}/../../RemoteFXCodec")
+	
+	
+	if (CMAKE_SIZEOF_VOID_P EQUAL 8)
+		freerdp_library_add ("${CMAKE_CURRENT_SOURCE_DIR}/../../RemoteFXCodec/rfx64.o")
+	else ()
+		freerdp_library_add ("${CMAKE_CURRENT_SOURCE_DIR}/../../RemoteFXCodec/rfx32.o")
+	endif ()
+endif ()
+	
+set(CODEC_SRCS ${CODEC_SRCS} ${CODEC_RFX_SRCS})
+set_source_files_properties(${CODEC_RFX_SRCS} PROPERTIES COMPILE_FLAGS "-O3" )
 
 set(CODEC_SSE2_SRCS
 	codec/rfx_sse2.c
@@ -292,6 +311,10 @@ endif()
 
 add_library(${MODULE_NAME} ${LIBFREERDP_SRCS})
 add_definitions(${LIBFREERDP_DEFINITIONS})
+
+if (WITH_ASM)
+	add_dependencies (${MODULE_NAME} RemoteFXAsm)
+endif ()
 
 set_target_properties(${MODULE_NAME} PROPERTIES LINKER_LANGUAGE C)
 
