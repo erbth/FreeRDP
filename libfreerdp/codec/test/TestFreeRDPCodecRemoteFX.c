@@ -789,7 +789,7 @@ int TestFreeRDPCodecRemoteFX(int argc, char* argv[])
 	{
 		for (i = 0; i < message->numTiles; i ++)
 		{
-			snprintf (buffer, BUF_SIZE, "tile%d.ppm", i);
+			snprintf (buffer, 20, "tile%d.ppm", i);
 			
 			output = fopen (buffer, "wb");
 			if (!output)
