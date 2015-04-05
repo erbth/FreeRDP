@@ -300,7 +300,7 @@ void draw_button(Window mywin,struct button *bt){
 
 char update_button(Window mywin,struct button *bt,char release,int x,int y){
 	if((x>(bt->posx+2))&&(x<(bt->posx+bt->width-2))&&(y>(bt->posy+2))&&(y<(bt->posy+bt->height-2))){
-		tab=bt->tabindex-1;
+		tab=bt->tabindex;
 
 		if(release){
 			bt->state&=~0x01;
@@ -542,7 +542,7 @@ void click_textbox(Window mywin,struct textbox *txt,int x,int y){
 
 		txt->cursor=i;
 		
-		tab=txt->tabindex-1;
+		tab=txt->tabindex;
 	}else{
 		txt->state&=~0x02;
 		txt->state&=~0x04;

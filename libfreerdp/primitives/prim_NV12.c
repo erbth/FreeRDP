@@ -29,7 +29,6 @@
 #include <freerdp/primitives.h>
 #include <freerdp/codec/color.h>
 
-#include "prim_internal.h"
 #include "prim_NV12.h"
 
 /**
