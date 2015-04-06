@@ -34,7 +34,10 @@
 #include "rfx_differential.h"
 #include "rfx_quantization.h"
 #include "rfx_dwt.h"
+
+#ifdef WITH_ASM
 #include <rfxAsm.h>
+#endif
 
 #include "rfx_decode.h"
 
