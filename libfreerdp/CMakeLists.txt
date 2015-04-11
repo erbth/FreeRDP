@@ -335,10 +335,6 @@ endif()
 add_library(${MODULE_NAME} ${LIBFREERDP_SRCS})
 add_definitions(${LIBFREERDP_DEFINITIONS})
 
-if (WITH_ASM)
-	add_dependencies (${MODULE_NAME} RemoteFXAsm)
-endif ()
-
 set_target_properties(${MODULE_NAME} PROPERTIES LINKER_LANGUAGE C)
 
 if (WITH_LIBRARY_VERSIONING)
