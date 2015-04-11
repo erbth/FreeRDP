@@ -11,6 +11,8 @@
  * or implied. See the License for the specific language governing
  * permissions and limitations under the License.  Algorithms used by
  * this code may be covered by patents by HP, Microsoft, or other parties.
+ * 
+ * NOTE: I, Thomas Erbesdobler <t.erbesdobler@team103.com>, modified this file
  */
 
 #ifdef __GNUC__

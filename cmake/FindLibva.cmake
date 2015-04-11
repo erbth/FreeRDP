@@ -1,3 +1,6 @@
+# NOTE: I, Thomas Erbesdobler <t.erbesdobler@team103.com>, created 
+# this file as addition to FreeRDP
+
 # - Try to find Libva for using intel's VAAPI
 # ... just like OpenH264 is handled ...
 # Once done this will define

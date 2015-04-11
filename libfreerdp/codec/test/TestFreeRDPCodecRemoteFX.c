@@ -1,3 +1,7 @@
+/**
+ * NOTE: I, Thomas Erbesdobler <t.erbesdobler@team103.com>, modified this file
+ */
+
 #include <winpr/crt.h>
 #include <winpr/print.h>
 

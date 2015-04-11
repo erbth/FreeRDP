@@ -1,5 +1,5 @@
 /**
- * FreeRDP: A Remote Desktop Protocol Implementation
+ * Copyright 2015 Thomas Erbesdobler <t.erbesdobler@team103.com>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,8 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * This file is actually the same as prim_YUV.h for converting IYUV coded
- * images to RGB, released under the Copyright of Marc-Andre Moreau
+ * NOTE:
+ * This file is actually the same as prim_YUV.c for converting IYUV coded
+ * images to RGB, created by and under Copyright of Marc-Andre Moreau
  * <marcandre.moreau@gmail.com> 2014 as part of FreeRDP.
  *
  * Because NV12 is just another YUV format, the conversation is the same

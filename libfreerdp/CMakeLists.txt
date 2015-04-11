@@ -14,6 +14,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# NOTE: I, Thomas Erbesdobler <t.erbesdobler@team103.com>, modified this file
 
 set(MODULE_NAME "freerdp")
 set(MODULE_PREFIX "FREERDP")
