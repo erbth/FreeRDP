@@ -170,23 +170,31 @@ void xf_SetWindowFullscreen(xfContext* xfc, xfWindow* window, BOOL fullscreen)
 	XMoveResizeWindow(xfc->display, window->handle, startX, startY, window->width, window->height);
 	XMapRaised(xfc->display, window->handle);
 
-	/* Set the fullscreen state */
-	xf_SendClientEvent(xfc, window->handle, xfc->_NET_WM_STATE, 4,
-				fullscreen ? _NET_WM_STATE_ADD : _NET_WM_STATE_REMOVE,
-				xfc->_NET_WM_STATE_FULLSCREEN, 0, 0);
-
-	/* Only send monitor bounds if they are valid */
-	if ((xfc->fullscreenMonitors.top >= 0) &&
-			(xfc->fullscreenMonitors.bottom >= 0) &&
-			(xfc->fullscreenMonitors.left >= 0) &&
-			(xfc->fullscreenMonitors.right >= 0))
+	if (xfc->_NET_WM_FULLSCREEN_MONITORS != None)
 	{
-		xf_SendClientEvent(xfc, window->handle, xfc->_NET_WM_FULLSCREEN_MONITORS, 5,
-				xfc->fullscreenMonitors.top,
-				xfc->fullscreenMonitors.bottom,
-				xfc->fullscreenMonitors.left,
-				xfc->fullscreenMonitors.right,
-				1);
+		/* Set the fullscreen state */
+		xf_SendClientEvent(xfc, window->handle, xfc->_NET_WM_STATE, 4,
+					fullscreen ? _NET_WM_STATE_ADD : _NET_WM_STATE_REMOVE,
+					xfc->_NET_WM_STATE_FULLSCREEN, 0, 0);
+
+		/* Only send monitor bounds if they are valid */
+		if ((xfc->fullscreenMonitors.top >= 0) &&
+				(xfc->fullscreenMonitors.bottom >= 0) &&
+				(xfc->fullscreenMonitors.left >= 0) &&
+				(xfc->fullscreenMonitors.right >= 0))
+		{
+			xf_SendClientEvent(xfc, window->handle, xfc->_NET_WM_FULLSCREEN_MONITORS, 5,
+					xfc->fullscreenMonitors.top,
+					xfc->fullscreenMonitors.bottom,
+					xfc->fullscreenMonitors.left,
+					xfc->fullscreenMonitors.right,
+					1);
+		}
+	}
+	else
+	{
+		if (fullscreen)
+			xf_SetWindowDecorations(xfc, window->handle, FALSE);
 	}
 
 	window->fullscreen = TRUE;
