@@ -522,7 +522,7 @@ int DeviceServiceEntry(PDEVICE_SERVICE_ENTRY_POINTS pEntryPoints)
 	smartcard->IrpQueue = MessageQueue_New(NULL);
 
 #ifdef WITH_DEBUG_SCARD
-	WLog_SetLogLevel(smartcard->log, WLOG_DEBUG);
+	WLog_SetLogLevel(WLog_Get(TAG), WLOG_DEBUG);
 #endif
 
 	smartcard->CompletedIrpQueue = Queue_New(TRUE, -1, -1);
