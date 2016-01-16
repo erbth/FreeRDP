@@ -456,6 +456,8 @@ UINT smartcard_process_irp(SMARTCARD_DEVICE* smartcard, IRP* irp)
 		if (!pContext)
 			asyncIrp = FALSE;
 
+		// asyncIrp = FALSE;
+
 		if (!asyncIrp)
 		{
 			if ((status = smartcard_irp_device_control_call(smartcard, operation)))
@@ -679,6 +681,10 @@ UINT DeviceServiceEntry(PDEVICE_SERVICE_ENTRY_POINTS pEntryPoints)
 	RDPDR_SMARTCARD* device;
 	SMARTCARD_DEVICE* smartcard;
 	UINT error = CHANNEL_RC_NO_MEMORY;
+
+#ifdef WITH_DEBUG_SCARD
+	WLog_SetLogLevel (WLog_Get (TAG), WLOG_TRACE);
+#endif
 
 	device = (RDPDR_SMARTCARD*) pEntryPoints->device;
 

@@ -1499,6 +1499,8 @@ WINSCARDAPI LONG WINAPI PCSC_SCardGetStatusChange_Internal(SCARDCONTEXT hContext
 	/* pcsc-lite interprets value 0 as INFINITE, work around the problem by using value 1 */
 	pcsc_dwTimeout = pcsc_dwTimeout ? pcsc_dwTimeout : 1;
 
+	WLog_INFO (TAG, "pcsc_dwTimeout: %d, dwTimeout: %d\n", pcsc_dwTimeout, dwTimeout);
+
 	/**
 	 * Apple's SmartCard Services (not vanilla pcsc-lite) appears to have trouble with the
 	 * "\\\\?PnP?\\Notification" reader name. I am always getting EXC_BAD_ACCESS with it.
@@ -1554,9 +1556,13 @@ WINSCARDAPI LONG WINAPI PCSC_SCardGetStatusChange_Internal(SCARDCONTEXT hContext
 
 	if (cMappedReaders > 0)
 	{
+		WLog_INFO (TAG, "DEBUG #1\n");
+
 		status = (LONG) g_PCSC.pfnSCardGetStatusChange(hContext,
 				 pcsc_dwTimeout, states, cMappedReaders);
 		status = PCSC_MapErrorCodeToWinSCard(status);
+
+		WLog_INFO (TAG, "DEBUG #2\n");
 	}
 	else
 	{
@@ -1573,7 +1579,8 @@ WINSCARDAPI LONG WINAPI PCSC_SCardGetStatusChange_Internal(SCARDCONTEXT hContext
 		rgReaderStates[i].cbAtr = states[j].cbAtr;
 		CopyMemory(&(rgReaderStates[i].rgbAtr), &(states[j].rgbAtr), PCSC_MAX_ATR_SIZE);
 
-		dwEventState = states[j].dwEventState & ~SCARD_STATE_CHANGED;
+#if 1
+		dwEventState = states[j].dwEventState; // & ~SCARD_STATE_CHANGED;
 
 		if (dwEventState != rgReaderStates[i].dwCurrentState)
 		{
@@ -1594,14 +1601,23 @@ WINSCARDAPI LONG WINAPI PCSC_SCardGetStatusChange_Internal(SCARDCONTEXT hContext
 
 		if (rgReaderStates[i].dwCurrentState & SCARD_STATE_IGNORE)
 			rgReaderStates[i].dwEventState = SCARD_STATE_IGNORE;
+#else
+		rgReaderStates[i].dwEventState = states[j].dwEventState;
+		stateChanged = TRUE;
+#endif
 	}
 
 	free(map);
 	free(states);
+
+#if 1
 	if ((status == SCARD_S_SUCCESS) && !stateChanged)
 		status = SCARD_E_TIMEOUT;
 	else if ((status == SCARD_E_TIMEOUT) && stateChanged)
 		return SCARD_S_SUCCESS;
+#endif
+
+	WLog_INFO (TAG, "DEBUG return 0x%x\n", status);
 
 	return status;
 }

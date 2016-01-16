@@ -2435,32 +2435,6 @@ int freerdp_client_load_addins(rdpChannels* channels, rdpSettings* settings)
 		}
 	}
 
-	if (settings->RedirectSmartCards)
-	{
-		RDPDR_SMARTCARD* smartcard;
-
-		smartcard = (RDPDR_SMARTCARD*) calloc(1, sizeof(RDPDR_SMARTCARD));
-
-		if (!smartcard)
-			return -1;
-
-		smartcard->Type = RDPDR_DTYP_SMARTCARD;
-		freerdp_device_collection_add(settings, (RDPDR_DEVICE*) smartcard);
-	}
-
-	if (settings->RedirectPrinters)
-	{
-		RDPDR_PRINTER* printer;
-
-		printer = (RDPDR_PRINTER*) calloc(1, sizeof(RDPDR_PRINTER));
-
-		if (!printer)
-			return -1;
-
-		printer->Type = RDPDR_DTYP_PRINT;
-		freerdp_device_collection_add(settings, (RDPDR_DEVICE*) printer);
-	}
-
 	if (settings->RedirectClipboard)
 	{
 		if (!freerdp_static_channel_collection_find(settings, "cliprdr"))

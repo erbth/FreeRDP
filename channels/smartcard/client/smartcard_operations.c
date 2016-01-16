@@ -468,6 +468,8 @@ static LONG smartcard_GetStatusChangeA_Call(SMARTCARD_DEVICE* smartcard, SMARTCA
 	status = ret.ReturnCode = SCardGetStatusChangeA(operation->hContext,
 			call->dwTimeOut, call->rgReaderStates, call->cReaders);
 
+	WLog_DBG (TAG, "SCardGetStatusChangeA() returned 0x%x\n", status);
+
 	if (status && (status != SCARD_E_TIMEOUT) && (status != SCARD_E_CANCELLED))
 	{
 		call->cReaders = 0;
@@ -475,11 +477,14 @@ static LONG smartcard_GetStatusChangeA_Call(SMARTCARD_DEVICE* smartcard, SMARTCA
 
 	ret.cReaders = call->cReaders;
 	ret.rgReaderStates = NULL;
+
 	if (ret.cReaders > 0)
+	{
 		ret.rgReaderStates = (ReaderState_Return*) calloc(ret.cReaders, sizeof(ReaderState_Return));
 
-	if (!ret.rgReaderStates)
-		return STATUS_NO_MEMORY;
+		if (!ret.rgReaderStates)
+			return STATUS_NO_MEMORY;
+	}
 
 	for (index = 0; index < ret.cReaders; index++)
 	{
@@ -542,11 +547,14 @@ static LONG smartcard_GetStatusChangeW_Call(SMARTCARD_DEVICE* smartcard, SMARTCA
 
 	ret.cReaders = call->cReaders;
 	ret.rgReaderStates = NULL;
+
 	if (ret.cReaders > 0)
+	{
 		ret.rgReaderStates = (ReaderState_Return*) calloc(ret.cReaders, sizeof(ReaderState_Return));
 
-	if (!ret.rgReaderStates)
-		return STATUS_NO_MEMORY;
+		if (!ret.rgReaderStates)
+			return STATUS_NO_MEMORY;
+	}
 
 	for (index = 0; index < ret.cReaders; index++)
 	{
