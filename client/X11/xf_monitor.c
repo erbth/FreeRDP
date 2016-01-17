@@ -15,6 +15,9 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * NOTE: Added commandline option for using primary monitor of Xorg.
+ *       Thomas Erbesdobler <t.erbesdobler@team103.com>
  */
 
 #ifdef HAVE_CONFIG_H
@@ -261,6 +264,15 @@ BOOL xf_detect_monitors(xfContext* xfc)
 		settings->MonitorDefArray[nmonitors].width = MIN(vscreen->monitors[i].area.right - vscreen->monitors[i].area.left + 1, xfc->desktopWidth);
 		settings->MonitorDefArray[nmonitors].height = MIN(vscreen->monitors[i].area.bottom - vscreen->monitors[i].area.top + 1, xfc->desktopHeight);
 		settings->MonitorDefArray[nmonitors].orig_screen = i;
+
+		if (settings->PrimaryMonitor == PRIMARY_MONITOR_X && i == 0)
+		{
+			settings->MonitorDefArray[nmonitors].is_primary = TRUE;
+			settings->MonitorLocalShiftX = settings->MonitorDefArray[nmonitors].x;
+			settings->MonitorLocalShiftY = settings->MonitorDefArray[nmonitors].y;
+
+			primaryMonitorFound = TRUE;
+		}
 
 		nmonitors++;
 	}

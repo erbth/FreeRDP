@@ -67,6 +67,7 @@ COMMAND_LINE_ARGUMENT_A args[] =
 	{ "workarea", COMMAND_LINE_VALUE_FLAG, NULL, NULL, NULL, -1, NULL, "Use available work area" },
 	{ "monitors", COMMAND_LINE_VALUE_REQUIRED, "<0,1,2...>", NULL, NULL, -1, NULL, "Select monitors to use" },
 	{ "monitor-list", COMMAND_LINE_VALUE_FLAG | COMMAND_LINE_PRINT, NULL, NULL, NULL, -1, NULL, "List detected monitors" },
+	{ "primary-monitor", COMMAND_LINE_VALUE_REQUIRED, "<X>", NULL, NULL, -1, NULL, "Use primary monitor of Xorg (more features might be implemented later)" },
 	{ "t", COMMAND_LINE_VALUE_REQUIRED, "<title>", NULL, NULL, -1, "title", "Window title" },
 	{ "decorations", COMMAND_LINE_VALUE_BOOL, NULL, BoolValueTrue, NULL, -1, NULL, "Window decorations" },
 	{ "smart-sizing", COMMAND_LINE_VALUE_OPTIONAL, "<width>x<height>", NULL, NULL, -1, NULL, "Scale remote desktop to window size" },
@@ -1362,6 +1363,11 @@ int freerdp_client_settings_parse_command_line_arguments(rdpSettings* settings,
 		CommandLineSwitchCase(arg, "monitor-list")
 		{
 			settings->ListMonitors = TRUE;
+		}
+		CommandLineSwitchCase(arg, "primary-monitor")
+		{
+			if (strcmp(arg->Value, "X") == 0)
+				settings->PrimaryMonitor = PRIMARY_MONITOR_X;
 		}
 		CommandLineSwitchCase(arg, "t")
 		{
