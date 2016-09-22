@@ -16,6 +16,9 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * NOTE: Added commandline option for using primary monitor of Xorg.
+ *       Thomas Erbesdobler <t.erbesdobler@team103.com>
  */
 
 #ifndef FREERDP_SETTINGS_H
@@ -262,6 +265,9 @@ typedef struct _TARGET_NET_ADDRESS TARGET_NET_ADDRESS;
 #define PACKET_COMPR_TYPE_RDP6			0x02
 #define PACKET_COMPR_TYPE_RDP61			0x03
 #define PACKET_COMPR_TYPE_RDP8			0x04
+
+/* Primary Monitor Flags */
+#define PRIMARY_MONITOR_X			0xFFFFFFFF
 
 /* SYSTEM_TIME */
 typedef struct
@@ -1397,6 +1403,11 @@ struct rdp_settings
 	 * The zone below this point is ABI unstable, and
 	 * is therefore potentially subject to ABI breakage.
 	 */
+
+	/**
+	 * Primary Monitor
+	 */
+	ALIGN64 UINT32 PrimaryMonitor;
 
 	/*
 	 * Extensions
