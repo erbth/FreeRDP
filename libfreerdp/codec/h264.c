@@ -622,7 +622,11 @@ static BOOL libavcodec_init(H264_CONTEXT* h264)
 	}
 #endif
 
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(55, 28, 1)
+	sys->videoFrame = av_frame_alloc();
+#else
 	sys->videoFrame = avcodec_alloc_frame();
+#endif
 
 	if (!sys->videoFrame)
 	{
