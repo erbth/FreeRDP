@@ -2121,7 +2121,7 @@ WINSCARDAPI LONG WINAPI PCSC_SCardTransmit(SCARDHANDLE hCard,
 
 	pcsc_cbRecvLength = (PCSC_DWORD) *pcbRecvLength;
 
-	if (!pioSendPci)
+	if (!pioSendPci || pioSendPci->dwProtocol == SCARD_PROTOCOL_UNDEFINED)
 	{
 		PCSC_DWORD dwState = 0;
 		PCSC_DWORD cbAtrLen = 0;
@@ -2142,6 +2142,8 @@ WINSCARDAPI LONG WINAPI PCSC_SCardTransmit(SCARDHANDLE hCard,
 			else if (dwProtocol == PCSC_SCARD_PROTOCOL_RAW)
 				pcsc_pioSendPci = (PCSC_SCARD_IO_REQUEST*) PCSC_SCARD_PCI_RAW;
 		}
+
+		pioSendPci = NULL;
 	}
 	else
 	{

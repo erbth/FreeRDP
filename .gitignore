@@ -138,3 +138,7 @@ TAGS
 
 #
 .idea
+
+cscope.out
+tags
+mysession.vim
