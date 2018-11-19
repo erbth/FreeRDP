@@ -219,6 +219,8 @@ int logon_dialog(char *user,char *passwd){
 	int td,pause=0;
 	int posx,posy;
 	int temp1;
+	int i;
+	int len;
 	
 	if(xopen()){
 		printf("Connection to XServer couldn't be established.");
@@ -243,6 +245,28 @@ int logon_dialog(char *user,char *passwd){
 	
 	txtuser.state|=0x02;
 	tab=txtuser.tabindex;
+
+	/* Dirtiest hack ever, no idea what and why. 19. November, 2018, Thomas Erbesdobler */
+	if (user)
+	{
+		len = strlen (user);
+
+		for (i = 0; i < len; i++)
+		{
+			if (user[i] < 0)
+			{
+				int j;
+
+				user[i] = UTF8toASCII (user + i);
+				len--;
+
+				for (j = i + 1; j < len; j++)
+					user[j] = user[j + 1];
+			}
+		}
+
+		user[len] = '\0';
+	}
 	
 	
 	if(user!=NULL){

@@ -159,4 +159,6 @@ extern void update_eye(Window mywin,struct eyes *myeyes,int num,int posx,int pos
 extern void textbox_eyes(Window mywin,struct eyes *myeyes,struct textbox *mytxt);
 extern void button_eyes(Window mywin,struct eyes *myeyes,struct button *bt);
 
+char UTF8toASCII(char *data);
+
 #endif
