@@ -110,7 +110,7 @@ pstatus_t ssse3_NV12ToRGB_8u_P2AC4R(const BYTE **pSrc, int *srcStep,
 			*	0d0d 0c0c 0b0b 0a0a
 			* we've done two things: converting the values to signed words and duplicating
 			* each value, because always two pixel "share" the same U- (and V-) data */
-				r0 = _mm_cvtsi64_si128(*(UINT64 *)UVData);
+				// r0 = _mm_cvtsi64_si128(*(UINT64 *)UVData);
 				r5 = _mm_set_epi32(0x80068006,0x80048004,0x80028002,0x80008000);
 				r3 = r0;
 
